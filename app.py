@@ -1097,22 +1097,10 @@ with tab2:
         # 조회 필터
         st.markdown('<div class="sec-label">🔍 이력 조회 필터</div>', unsafe_allow_html=True)
 
-        filter_date = st.text_input(
-            "날짜 필터",
-            placeholder="예) 260319 (빈칸=전체)",
-            key="pc_filter_date",
-            label_visibility="collapsed",
-        )
-        filter_seat = st.text_input(
-            "자리 필터",
-            placeholder="예) 1번 (빈칸=전체)",
-            key="pc_filter_seat",
-            label_visibility="collapsed",
-        )
-        filter_person = st.text_input(
-            "담당자 필터",
-            placeholder="예) 이찬영 (빈칸=전체)",
-            key="pc_filter_person",
+        filter_keyword = st.text_input(
+            "통합 검색",
+            placeholder="날짜 · 장비명 · 담당자 모두 검색 가능",
+            key="pc_filter_keyword",
             label_visibility="collapsed",
         )
 
@@ -1124,8 +1112,7 @@ with tab2:
 
         st.markdown("""
         <div class="sec-alert" style="font-size:11px;margin-top:8px">
-            💡 배정 이력은 구글 시트 2번째 탭에 누적 저장됩니다.<br>
-            날짜 형식: YYMMDD (예: 260319)
+            💡 날짜(260319), 장비명, 담당자 이름 등 아무 키워드로 검색하세요.
         </div>
         """, unsafe_allow_html=True)
 
@@ -1139,15 +1126,13 @@ with tab2:
 
         # 필터 적용
         filtered_df = pc_df.copy()
-        apply_filter = btn_filter or btn_refresh
 
-        if btn_filter:
-            if filter_date.strip():
-                filtered_df = filtered_df[filtered_df["날짜"].str.contains(filter_date.strip(), na=False)]
-            if filter_seat.strip():
-                filtered_df = filtered_df[filtered_df["자리번호"].str.contains(filter_seat.strip(), na=False)]
-            if filter_person.strip():
-                filtered_df = filtered_df[filtered_df["담당자"].str.contains(filter_person.strip(), na=False)]
+        if btn_filter and filter_keyword.strip():
+            kw = filter_keyword.strip()
+            mask = pc_df.apply(
+                lambda row: kw.lower() in " ".join(row.values.astype(str)).lower(), axis=1
+            )
+            filtered_df = pc_df[mask]
 
         if pc_df.empty:
             st.markdown('<div class="sec-alert">아직 배정 기록이 없습니다. 왼쪽에서 첫 배정을 입력해보세요!</div>', unsafe_allow_html=True)
