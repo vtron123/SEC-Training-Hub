@@ -377,12 +377,18 @@ section[data-testid="stSidebar"] { display: none !important; }
     font-family: 'Pretendard', sans-serif !important;
     font-size: 14px !important;
     background: var(--gray-50) !important;
+    color: var(--gray-900) !important;
     transition: all 0.2s !important;
 }
 .stTextInput > div > div > input:focus {
     border-color: var(--lavender-400) !important;
     background: white !important;
+    color: var(--gray-900) !important;
     box-shadow: 0 0 0 3px rgba(168,85,247,0.12) !important;
+}
+.stTextInput > div > div > input::placeholder {
+    color: var(--gray-400) !important;
+    opacity: 1 !important;
 }
 .stTextArea > div > div > textarea {
     border-radius: 12px !important;
@@ -390,6 +396,11 @@ section[data-testid="stSidebar"] { display: none !important; }
     font-family: 'Pretendard', sans-serif !important;
     font-size: 13px !important;
     background: var(--gray-50) !important;
+    color: var(--gray-900) !important;
+}
+.stTextArea > div > div > textarea::placeholder {
+    color: var(--gray-400) !important;
+    opacity: 1 !important;
 }
 .stSelectbox > div > div {
     border-radius: 12px !important;
@@ -1181,14 +1192,15 @@ with tab2:
                     machine = row["장비명"]
                     person = row["담당자"]
                     memo = row["메모"]
-                    extra = f" · {memo}" if memo else ""
+                    seat_badge = f'<span style="font-size:11px;color:#6b7280;background:#f3f4f6;padding:2px 8px;border-radius:8px">{seat}</span>' if seat.strip() else ""
+                    memo_part = f'<span style="font-size:10px;color:#9ca3af;margin-left:4px">· {memo}</span>' if memo else ""
 
                     timeline_html += f"""
                     <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;background:#faf5ff;border-radius:10px">
                         <span style="background:#7c3aed;color:white;font-size:10px;font-weight:700;padding:2px 8px;border-radius:12px;min-width:24px;text-align:center">{i+1}</span>
-                        <span style="font-size:13px;font-weight:600;color:#374151;flex:1">{machine}</span>
-                        <span style="font-size:11px;color:#6b7280;background:#f3f4f6;padding:2px 8px;border-radius:8px">{seat}</span>
-                        <span style="font-size:11px;color:#7c3aed;font-weight:600;min-width:60px;text-align:right">{person}{extra}</span>
+                        <span style="font-size:13px;font-weight:600;color:#374151;flex:1">{machine}{memo_part}</span>
+                        {seat_badge}
+                        <span style="font-size:11px;color:#7c3aed;font-weight:600;min-width:60px;text-align:right">{person}</span>
                     </div>
                     """
 
@@ -1199,5 +1211,8 @@ with tab2:
 
             # ── 원본 테이블 (접기) ──
             with st.expander("📋 전체 데이터 테이블 보기"):
-                show_df = display_df[["날짜", "자리번호", "장비명", "담당자", "메모"]].copy()
+                show_cols = ["날짜", "장비명", "담당자", "메모"]
+                if display_df["자리번호"].str.strip().any():
+                    show_cols = ["날짜", "자리번호", "장비명", "담당자", "메모"]
+                show_df = display_df[show_cols].copy()
                 st.dataframe(show_df, use_container_width=True, hide_index=True, height=300)
