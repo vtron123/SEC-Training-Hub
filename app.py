@@ -9,6 +9,7 @@ import os
 import base64
 import io
 import html as html_lib
+import altair as alt
 from PIL import Image
 
 # ──────────────────────────────────────────────
@@ -980,7 +981,19 @@ with tab1:
                 date_group["날짜_단축"] = date_group["날짜"].str[:10]
                 chart_df = date_group.groupby("날짜_단축")["수량"].sum().reset_index()
                 chart_df.columns = ["날짜", "학습 장수"]
-                st.bar_chart(chart_df.set_index("날짜"), color="#a855f7", height=180)
+                chart_df = chart_df.sort_values("날짜", ascending=False)
+                date_order = list(chart_df["날짜"])
+                chart = (
+                    alt.Chart(chart_df)
+                    .mark_bar(color="#a855f7", cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
+                    .encode(
+                        x=alt.X("날짜:N", sort=date_order, axis=alt.Axis(labelAngle=0, labelFontSize=11, title=None)),
+                        y=alt.Y("학습 장수:Q", axis=alt.Axis(labelFontSize=11, title=None)),
+                        tooltip=["날짜", "학습 장수"],
+                    )
+                    .properties(height=180)
+                )
+                st.altair_chart(chart, use_container_width=True)
 
                 # 상세 테이블
                 st.markdown('<div class="sec-label">📋 상세 기록</div>', unsafe_allow_html=True)
