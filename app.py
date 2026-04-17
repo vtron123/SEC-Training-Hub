@@ -1190,19 +1190,20 @@ with tab2:
                 )
 
                 for i, row in day_rows.iterrows():
-                    seat = html_lib.escape(str(row["자리번호"]))
                     machine = html_lib.escape(str(row["장비명"]))
                     person = html_lib.escape(str(row["담당자"]))
                     memo = html_lib.escape(str(row["메모"]))
-                    seat_badge = f'<span style="font-size:11px;color:#6b7280;background:#f3f4f6;padding:2px 8px;border-radius:8px">{seat}</span>' if seat.strip() else ""
-                    memo_part = f'<span style="font-size:10px;color:#9ca3af;margin-left:4px">&middot; {memo}</span>' if memo else ""
+                    memo_chip = (
+                        f'<span style="font-size:11px;font-weight:600;color:#6d28d9;background:linear-gradient(135deg,#ede9fe,#ddd6fe);'
+                        f'padding:3px 10px;border-radius:20px;white-space:nowrap">{memo}</span>'
+                    ) if memo else ""
 
                     timeline_html += (
-                        '<div style="display:flex;align-items:center;gap:10px;padding:7px 10px;background:#faf5ff;border-radius:10px">'
-                        f'<span style="background:#7c3aed;color:white;font-size:10px;font-weight:700;padding:2px 8px;border-radius:12px;min-width:24px;text-align:center">{i+1}</span>'
-                        f'<span style="font-size:13px;font-weight:600;color:#374151;flex:1">{machine}{memo_part}</span>'
-                        f'{seat_badge}'
-                        f'<span style="font-size:11px;color:#7c3aed;font-weight:600;min-width:60px;text-align:right">{person}</span>'
+                        '<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:#faf5ff;border-radius:10px">'
+                        f'<span style="background:#7c3aed;color:white;font-size:10px;font-weight:700;padding:2px 8px;border-radius:12px;min-width:24px;text-align:center;flex-shrink:0">{i+1}</span>'
+                        f'<span style="font-size:13px;font-weight:600;color:#374151;flex:1;min-width:0">{machine}</span>'
+                        f'{memo_chip}'
+                        f'<span style="font-size:11px;color:#7c3aed;font-weight:600;min-width:60px;text-align:right;flex-shrink:0">{person}</span>'
                         '</div>'
                     )
 
