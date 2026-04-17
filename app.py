@@ -973,6 +973,7 @@ with tab1:
                 # 상세 테이블
                 st.markdown('<div class="sec-label">📋 상세 기록</div>', unsafe_allow_html=True)
                 display_df = result_df[["날짜", "장비명", "수량", "내용"]].copy()
+                display_df = display_df.sort_values("날짜", ascending=False)
                 display_df["수량"] = display_df["수량"].apply(lambda x: f"{x:,}장")
                 st.dataframe(
                     display_df,
