@@ -5,13 +5,19 @@ import datetime
 import re
 import pandas as pd
 import json
+import os
+import base64
+import io
+from PIL import Image
 
 # ──────────────────────────────────────────────
 # 페이지 설정 (반드시 최상단)
 # ──────────────────────────────────────────────
 st.set_page_config(
     page_title="SEC 트레이닝 허브",
-    page_icon="⚡",
+    page_icon="company_logo.ico" if os.path.exists(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "company_logo.ico")
+    ) else "⚡",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -466,6 +472,36 @@ section[data-testid="stSidebar"] { display: none !important; }
 """, unsafe_allow_html=True)
 
 # ──────────────────────────────────────────────
+# 회사 로고 로딩 (base64 인코딩)
+# ──────────────────────────────────────────────
+@st.cache_data
+def get_logo_base64() -> str | None:
+    """
+    프로젝트 루트의 company_logo.ico / .png / .jpg 를 자동 탐색하여
+    base64 PNG 문자열로 반환합니다. 파일이 없으면 None 반환.
+    """
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(base_dir, "company_logo.ico"),
+        os.path.join(base_dir, "company_logo.png"),
+        os.path.join(base_dir, "company_logo.jpg"),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            try:
+                img = Image.open(path).convert("RGBA")
+                # 고해상도 ICO일 경우 최대 크기 프레임 선택
+                if hasattr(img, "n_frames"):
+                    pass  # 단일 이미지 처리
+                img = img.resize((64, 64), Image.LANCZOS)
+                buf = io.BytesIO()
+                img.save(buf, format="PNG")
+                return base64.b64encode(buf.getvalue()).decode()
+            except Exception:
+                pass
+    return None
+
+# ──────────────────────────────────────────────
 # 상수 & 매핑
 # ──────────────────────────────────────────────
 SHEET_NAME = "DL 트레이닝"
@@ -655,10 +691,24 @@ def delete_pc_assignment(row_index: int):
 # ──────────────────────────────────────────────
 # 헤더
 # ──────────────────────────────────────────────
+_logo_b64 = get_logo_base64()
+if _logo_b64:
+    # 회사 로고 이미지 사용 — 흰 배경 원형 컨테이너에 object-fit:contain
+    _logo_inner = f'<img src="data:image/png;base64,{_logo_b64}" style="width:32px;height:32px;object-fit:contain;border-radius:6px;" />'
+    _logo_icon_style = (
+        "background:white;"
+        "box-shadow:0 4px 14px rgba(168,85,247,0.25);"
+        "border:1.5px solid rgba(168,85,247,0.18);"
+    )
+else:
+    # 로고 파일 없을 때 기본 번개 이모지 폴백
+    _logo_inner = "⚡"
+    _logo_icon_style = "background:linear-gradient(135deg,#a855f7,#7c3aed);"
+
 st.markdown(f"""
 <div class="sec-header">
     <div class="sec-logo">
-        <div class="sec-logo-icon">⚡</div>
+        <div class="sec-logo-icon" style="{_logo_icon_style}">{_logo_inner}</div>
         <div>
             <div class="sec-logo-text">SEC 트레이닝 허브</div>
             <div class="sec-logo-sub">Smart Engineering Center · Training Manager</div>
