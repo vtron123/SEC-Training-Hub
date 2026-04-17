@@ -8,6 +8,7 @@ import json
 import os
 import base64
 import io
+import html as html_lib
 from PIL import Image
 
 # ──────────────────────────────────────────────
@@ -1179,30 +1180,31 @@ with tab2:
                 day_rows = display_df[display_df["날짜"] == date_val].reset_index(drop=True)
 
                 # 날짜 헤더
-                timeline_html += f"""
-                <div style="background:white;border-radius:18px;padding:16px 20px;box-shadow:0 2px 10px rgba(0,0,0,0.06);border-left:4px solid #a855f7">
-                    <div style="font-size:13px;font-weight:700;color:#7c3aed;margin-bottom:10px;display:flex;align-items:center;gap:8px">
-                        <span style="background:linear-gradient(135deg,#ede9fe,#ddd6fe);padding:3px 12px;border-radius:20px;font-size:12px">[{date_val} — 트레이닝 자리]</span>
-                    </div>
-                    <div style="display:flex;flex-direction:column;gap:6px">
-                """
+                safe_date = html_lib.escape(str(date_val))
+                timeline_html += (
+                    '<div style="background:white;border-radius:18px;padding:16px 20px;box-shadow:0 2px 10px rgba(0,0,0,0.06);border-left:4px solid #a855f7">'
+                    '<div style="font-size:13px;font-weight:700;color:#7c3aed;margin-bottom:10px;display:flex;align-items:center;gap:8px">'
+                    f'<span style="background:linear-gradient(135deg,#ede9fe,#ddd6fe);padding:3px 12px;border-radius:20px;font-size:12px">[{safe_date} &#8212; 트레이닝 자리]</span>'
+                    '</div>'
+                    '<div style="display:flex;flex-direction:column;gap:6px">'
+                )
 
                 for i, row in day_rows.iterrows():
-                    seat = row["자리번호"]
-                    machine = row["장비명"]
-                    person = row["담당자"]
-                    memo = row["메모"]
+                    seat = html_lib.escape(str(row["자리번호"]))
+                    machine = html_lib.escape(str(row["장비명"]))
+                    person = html_lib.escape(str(row["담당자"]))
+                    memo = html_lib.escape(str(row["메모"]))
                     seat_badge = f'<span style="font-size:11px;color:#6b7280;background:#f3f4f6;padding:2px 8px;border-radius:8px">{seat}</span>' if seat.strip() else ""
-                    memo_part = f'<span style="font-size:10px;color:#9ca3af;margin-left:4px">· {memo}</span>' if memo else ""
+                    memo_part = f'<span style="font-size:10px;color:#9ca3af;margin-left:4px">&middot; {memo}</span>' if memo else ""
 
-                    timeline_html += f"""
-                    <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;background:#faf5ff;border-radius:10px">
-                        <span style="background:#7c3aed;color:white;font-size:10px;font-weight:700;padding:2px 8px;border-radius:12px;min-width:24px;text-align:center">{i+1}</span>
-                        <span style="font-size:13px;font-weight:600;color:#374151;flex:1">{machine}{memo_part}</span>
-                        {seat_badge}
-                        <span style="font-size:11px;color:#7c3aed;font-weight:600;min-width:60px;text-align:right">{person}</span>
-                    </div>
-                    """
+                    timeline_html += (
+                        '<div style="display:flex;align-items:center;gap:10px;padding:7px 10px;background:#faf5ff;border-radius:10px">'
+                        f'<span style="background:#7c3aed;color:white;font-size:10px;font-weight:700;padding:2px 8px;border-radius:12px;min-width:24px;text-align:center">{i+1}</span>'
+                        f'<span style="font-size:13px;font-weight:600;color:#374151;flex:1">{machine}{memo_part}</span>'
+                        f'{seat_badge}'
+                        f'<span style="font-size:11px;color:#7c3aed;font-weight:600;min-width:60px;text-align:right">{person}</span>'
+                        '</div>'
+                    )
 
                 timeline_html += "</div></div>"
 
