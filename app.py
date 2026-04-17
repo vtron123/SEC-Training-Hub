@@ -534,34 +534,79 @@ def load_all_data():
     return df
 
 @st.cache_data(ttl=30)
-def load_pc_data():
+def load_pc_assignments():
+    """PC 자리 배정 이력 전체 로드 (날짜 / 자리번호 / 장비명 / 담당자 / 메모)"""
     sheet = get_pc_sheet()
     if sheet is None:
-        return {}
+        return pd.DataFrame(columns=["날짜", "자리번호", "장비명", "담당자", "메모"])
     rows = sheet.get_all_values()
-    result = {}
+    if not rows:
+        return pd.DataFrame(columns=["날짜", "자리번호", "장비명", "담당자", "메모"])
+    # 헤더 없이 저장된 경우도 대응
+    if rows[0][0] == "날짜":
+        rows = rows[1:]
+    records = []
     for row in rows:
-        if len(row) >= 2:
-            result[row[0]] = row[1]
-    return result
+        while len(row) < 5:
+            row.append("")
+        records.append({"날짜": row[0], "자리번호": row[1], "장비명": row[2], "담당자": row[3], "메모": row[4]})
+    return pd.DataFrame(records)
 
 # ──────────────────────────────────────────────
 # 헬퍼 함수
 # ──────────────────────────────────────────────
 def detect_machine(text: str) -> str:
-    upper = text.upper()
+    """
+    텍스트에서 장비명을 감지합니다.
+    - 괄호 안 날짜 패턴 (260414 등 6자리 숫자) 제거 후 매칭
+    - 긴 키워드 우선, 완전 단어 매칭 우선
+    """
+    # 괄호 안 날짜/숫자 패턴 제거: (260414), (26.04.14) 등
+    cleaned = re.sub(r'\(\d{4,8}\)', '', text)
+    # 연월일 패턴 제거: 260414, 2025-04-14 등
+    cleaned = re.sub(r'\b\d{6,8}\b', '', cleaned)
+    upper = cleaned.upper()
+
     sorted_map = sorted(MACHINE_MAP.items(), key=lambda x: len(max(x[1], key=len)), reverse=True)
     for full_name, keywords in sorted_map:
-        if any(kw in upper for kw in keywords):
-            return full_name
+        for kw in keywords:
+            # 키워드가 문자/숫자 경계에 있는지 확인 (오탐 방지)
+            pattern = r'(?<![A-Za-z0-9])' + re.escape(kw) + r'(?![A-Za-z0-9])'
+            if re.search(pattern, upper):
+                return full_name
     return "개별 장비"
+
+def parse_natural_input(text: str):
+    """
+    자연어 입력을 파싱하여 (장비명, 장수, 메모) 반환
+    예) "E81C (260414)일자 232장 학습" -> ("LGES HG E81C", 232, "E81C (260414)일자 232장 학습")
+    예) "현대차 300장" -> ("HMC(현대차)", 300, "현대차 300장")
+    """
+    # 장비 감지
+    machine = detect_machine(text)
+
+    # 숫자 + 단위 추출 (가장 큰 숫자를 장수로 간주)
+    # "232장", "232 장", "232매" 등
+    count_matches = re.findall(r'(\d[\d,]*)\s*(?:장|매|개|건)', text)
+    if count_matches:
+        count = int(count_matches[-1].replace(',', ''))  # 마지막 매칭값 사용
+    else:
+        # 단위 없이 숫자만 있는 경우 (날짜처럼 보이는 6자리 이상 제외)
+        nums = re.findall(r'\b(\d{1,5})\b', re.sub(r'\b\d{6,}\b', '', text))
+        count = int(nums[-1]) if nums else 0
+
+    return machine, count, text.strip()
 
 def parse_query_machine(text: str):
     upper = text.upper()
+    # 괄호 안 날짜 제거
+    cleaned = re.sub(r'\(\d{4,8}\)', '', upper)
     sorted_map = sorted(MACHINE_MAP.items(), key=lambda x: len(max(x[1], key=len)), reverse=True)
     for full_name, keywords in sorted_map:
-        if any(kw in upper for kw in keywords):
-            return full_name
+        for kw in keywords:
+            pattern = r'(?<![A-Za-z0-9])' + re.escape(kw) + r'(?![A-Za-z0-9])'
+            if re.search(pattern, cleaned):
+                return full_name
     return None
 
 def search_data(df: pd.DataFrame, query: str):
@@ -585,18 +630,26 @@ def record_data(machine: str, count: int, memo: str, category: str = "데이터 
     sheet.insert_row([today, machine, category, str(count), memo], index=next_row)
     load_all_data.clear()
 
-def save_pc_slot(pc_id: str, machine: str, memo: str = ""):
+def save_pc_assignment(date_str: str, pc_id: str, machine: str, person: str = "", memo: str = ""):
+    """PC 자리 배정 이력을 시트 2번 탭에 추가 저장 (덮어쓰기 X, 이력 누적)"""
     sheet = get_pc_sheet()
     if sheet is None:
         return False
     rows = sheet.get_all_values()
-    for i, row in enumerate(rows):
-        if row and row[0] == pc_id:
-            sheet.update(f"A{i+1}:D{i+1}", [[pc_id, machine, memo, datetime.datetime.now().strftime("%Y-%m-%d %H:%M")]])
-            load_pc_data.clear()
-            return True
-    sheet.append_row([pc_id, machine, memo, datetime.datetime.now().strftime("%Y-%m-%d %H:%M")])
-    load_pc_data.clear()
+    # 헤더가 없으면 추가
+    if not rows or rows[0][0] != "날짜":
+        sheet.insert_row(["날짜", "자리번호", "장비명", "담당자", "메모"], index=1)
+    sheet.append_row([date_str, pc_id, machine, person, memo])
+    load_pc_assignments.clear()
+    return True
+
+def delete_pc_assignment(row_index: int):
+    """특정 행 삭제 (1-based, 헤더 포함)"""
+    sheet = get_pc_sheet()
+    if sheet is None:
+        return False
+    sheet.delete_rows(row_index + 1)  # +1 for header
+    load_pc_assignments.clear()
     return True
 
 # ──────────────────────────────────────────────
@@ -682,17 +735,14 @@ with tab1:
                 )
                 if st.button("자동 파싱", key="btn_parse", use_container_width=True):
                     if rec_natural:
-                        detected = detect_machine(rec_natural)
-                        count_m = re.search(r'(\d+)\s*(장|매|개|건)?', rec_natural)
-                        detected_count = int(count_m.group(1)) if count_m else 0
-                        st.info(f"감지: **{detected}** / **{detected_count:,}장**")
+                        d_machine, d_count, _ = parse_natural_input(rec_natural)
+                        st.info(f"감지: **{d_machine}** / **{d_count:,}장**")
 
             if st.button("⚡ 기록 저장", key="btn_record", type="primary", use_container_width=True):
                 if rec_natural and rec_natural.strip():
-                    machine_final = detect_machine(rec_natural)
-                    count_m = re.search(r'(\d+)\s*(장|매|개|건)?', rec_natural)
-                    count_final = int(count_m.group(1)) if count_m else rec_count
-                    memo_final = rec_natural
+                    machine_final, count_final, memo_final = parse_natural_input(rec_natural)
+                    if count_final == 0:
+                        count_final = rec_count
                 elif selected_machine != "(장비 자동감지)":
                     machine_final = selected_machine
                     count_final = rec_count
@@ -891,110 +941,217 @@ with tab1:
 
 
 # ══════════════════════════════════════════════
-# TAB 2 — 트레이닝 PC 자리
+# TAB 2 — 트레이닝 PC 자리 배정 이력
 # ══════════════════════════════════════════════
 with tab2:
     col_pc_side, col_pc_main = st.columns([1, 2.4], gap="large")
 
+    # ── 왼쪽: 배정 입력 패널 ──
     with col_pc_side:
-        st.markdown('<div class="sec-label">🖥️ PC 자리 배정</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sec-label">🖥️ 배정 기록 입력</div>', unsafe_allow_html=True)
 
-        pc_ids = [f"PC-{i:02d}" for i in range(1, 13)]
-        selected_pc = st.selectbox("PC 자리", pc_ids, key="pc_select", label_visibility="collapsed")
+        # 날짜 입력 (기본값: 오늘)
+        assign_date = st.date_input(
+            "배정 날짜",
+            value=datetime.date.today(),
+            key="pc_date",
+            label_visibility="collapsed",
+        )
 
-        pc_machine = st.selectbox(
+        # 자리번호 — 텍스트 입력 (1번, 2번, PC-01 등 자유 입력)
+        assign_seat = st.text_input(
+            "자리번호",
+            placeholder="예) 1번, 2번, PC-A, 좌측3번",
+            key="pc_seat",
+            label_visibility="collapsed",
+        )
+
+        # 장비명
+        assign_machine = st.selectbox(
             "장비명",
             MACHINE_LIST,
-            key="pc_machine",
+            key="pc_machine2",
             label_visibility="collapsed",
         )
 
-        pc_memo = st.text_input(
-            "담당자 / 메모",
-            placeholder="담당자 이름 또는 메모",
-            key="pc_memo",
+        # 또는 직접 입력
+        assign_machine_custom = st.text_input(
+            "장비명 직접 입력 (선택 대신 사용)",
+            placeholder="예) HDAS 1호기 E11A SR",
+            key="pc_machine_custom",
             label_visibility="collapsed",
         )
 
-        if st.button("⚡ 자리 배정 저장", type="primary", use_container_width=True, key="btn_pc_save"):
-            if pc_machine == "(장비 자동감지)":
-                st.error("장비를 선택해주세요.")
+        # 담당자
+        assign_person = st.text_input(
+            "담당자",
+            placeholder="예) 이찬영p, 한재혁p",
+            key="pc_person",
+            label_visibility="collapsed",
+        )
+
+        # 메모
+        assign_memo = st.text_input(
+            "메모 (선택)",
+            placeholder="추가 메모",
+            key="pc_memo2",
+            label_visibility="collapsed",
+        )
+
+        if st.button("⚡ 배정 기록 저장", type="primary", use_container_width=True, key="btn_pc_save2"):
+            if not assign_seat.strip():
+                st.error("자리번호를 입력해주세요.")
             else:
-                try:
-                    save_pc_slot(selected_pc, pc_machine, pc_memo)
-                    st.success(f"✅ {selected_pc} → {pc_machine} 저장!")
-                    load_pc_data.clear()
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"저장 실패: {e}")
+                # 장비명: 직접입력 우선, 없으면 selectbox
+                machine_final = assign_machine_custom.strip() if assign_machine_custom.strip() else assign_machine
+                if machine_final == "(장비 자동감지)":
+                    st.error("장비명을 선택하거나 직접 입력해주세요.")
+                else:
+                    try:
+                        date_str = assign_date.strftime("%y%m%d")  # 260319 형식
+                        save_pc_assignment(
+                            date_str,
+                            assign_seat.strip(),
+                            machine_final,
+                            assign_person.strip(),
+                            assign_memo.strip(),
+                        )
+                        st.success(f"✅ [{date_str}] {assign_seat} → {machine_final} 저장!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"저장 실패: {e}")
 
         st.markdown('<div class="sec-divider"></div>', unsafe_allow_html=True)
 
-        if st.button("🔄 새로고침", use_container_width=True, key="btn_pc_refresh"):
-            load_pc_data.clear()
-            st.rerun()
+        # 조회 필터
+        st.markdown('<div class="sec-label">🔍 이력 조회 필터</div>', unsafe_allow_html=True)
+
+        filter_date = st.text_input(
+            "날짜 필터",
+            placeholder="예) 260319 (빈칸=전체)",
+            key="pc_filter_date",
+            label_visibility="collapsed",
+        )
+        filter_seat = st.text_input(
+            "자리 필터",
+            placeholder="예) 1번 (빈칸=전체)",
+            key="pc_filter_seat",
+            label_visibility="collapsed",
+        )
+        filter_person = st.text_input(
+            "담당자 필터",
+            placeholder="예) 이찬영 (빈칸=전체)",
+            key="pc_filter_person",
+            label_visibility="collapsed",
+        )
+
+        col_f1, col_f2 = st.columns(2)
+        with col_f1:
+            btn_filter = st.button("🔍 조회", use_container_width=True, key="btn_pc_filter", type="primary")
+        with col_f2:
+            btn_refresh = st.button("🔄 전체", use_container_width=True, key="btn_pc_refresh2")
 
         st.markdown("""
-        <div class="sec-alert" style="font-size:12px;margin-top:8px">
-            PC 자리 배정 정보는 구글 시트 2번째 탭에 저장됩니다.
+        <div class="sec-alert" style="font-size:11px;margin-top:8px">
+            💡 배정 이력은 구글 시트 2번째 탭에 누적 저장됩니다.<br>
+            날짜 형식: YYMMDD (예: 260319)
         </div>
         """, unsafe_allow_html=True)
 
+    # ── 오른쪽: 이력 조회 & 타임라인 ──
     with col_pc_main:
-        st.markdown('<div class="sec-label">🖥️ PC 자리 현황판</div>', unsafe_allow_html=True)
+        try:
+            pc_df = load_pc_assignments()
+        except Exception as e:
+            st.error(f"데이터 로드 실패: {e}")
+            pc_df = pd.DataFrame(columns=["날짜", "자리번호", "장비명", "담당자", "메모"])
 
-        pc_data = load_pc_data()
+        # 필터 적용
+        filtered_df = pc_df.copy()
+        apply_filter = btn_filter or btn_refresh
 
-        # PC 그리드
-        pc_ids_all = [f"PC-{i:02d}" for i in range(1, 13)]
-        cols_per_row = 4
-        rows = [pc_ids_all[i:i+cols_per_row] for i in range(0, len(pc_ids_all), cols_per_row)]
+        if btn_filter:
+            if filter_date.strip():
+                filtered_df = filtered_df[filtered_df["날짜"].str.contains(filter_date.strip(), na=False)]
+            if filter_seat.strip():
+                filtered_df = filtered_df[filtered_df["자리번호"].str.contains(filter_seat.strip(), na=False)]
+            if filter_person.strip():
+                filtered_df = filtered_df[filtered_df["담당자"].str.contains(filter_person.strip(), na=False)]
 
-        for row_pcs in rows:
-            cols = st.columns(len(row_pcs))
-            for col, pc_id in zip(cols, row_pcs):
-                with col:
-                    machine = pc_data.get(pc_id, "")
-                    is_active = bool(machine)
-                    bg = "linear-gradient(135deg,#faf5ff,#ede9fe)" if is_active else "#f9fafb"
-                    border = "#a855f7" if is_active else "#e5e7eb"
-                    icon = "🟢" if is_active else "⚪"
-                    machine_short = machine[:12] + "…" if len(machine) > 12 else machine
+        if pc_df.empty:
+            st.markdown('<div class="sec-alert">아직 배정 기록이 없습니다. 왼쪽에서 첫 배정을 입력해보세요!</div>', unsafe_allow_html=True)
+        else:
+            # ── 요약 통계 ──
+            total_assignments = len(pc_df)
+            unique_dates = pc_df["날짜"].nunique()
+            unique_machines_pc = pc_df["장비명"].nunique()
+            unique_persons = pc_df["담당자"].nunique()
 
-                    st.markdown(f"""
-                    <div style="
-                        background:{bg};
-                        border:2px solid {border};
-                        border-radius:16px;
-                        padding:16px 12px;
-                        text-align:center;
-                        margin-bottom:12px;
-                        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-                        transition: all 0.2s;
-                    ">
-                        <div style="font-size:24px;font-weight:700;color:#7c3aed;letter-spacing:-1px">{pc_id}</div>
-                        <div style="font-size:10px;color:#9ca3af;margin:4px 0;font-weight:500">{icon} {'사용중' if is_active else '비어있음'}</div>
-                        <div style="font-size:12px;font-weight:600;color:#374151;min-height:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{machine_short}</div>
+            st.markdown(f"""
+            <div class="stat-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+                <div class="stat-chip">
+                    <div class="stat-chip-val">{total_assignments}</div>
+                    <div class="stat-chip-label">총 배정 건수</div>
+                </div>
+                <div class="stat-chip">
+                    <div class="stat-chip-val">{unique_dates}</div>
+                    <div class="stat-chip-label">트레이닝 날짜</div>
+                </div>
+                <div class="stat-chip">
+                    <div class="stat-chip-val">{unique_machines_pc}</div>
+                    <div class="stat-chip-label">장비 종류</div>
+                </div>
+                <div class="stat-chip">
+                    <div class="stat-chip-val">{unique_persons}</div>
+                    <div class="stat-chip-label">담당자 수</div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # ── 날짜별 타임라인 뷰 (사진1 스타일) ──
+            st.markdown('<div class="sec-label">📅 날짜별 배정 이력</div>', unsafe_allow_html=True)
+
+            display_df = filtered_df if (btn_filter and not filtered_df.empty) else pc_df
+
+            # 날짜 기준으로 그룹핑
+            dates_sorted = sorted(display_df["날짜"].unique(), reverse=True)
+
+            timeline_html = '<div style="display:flex;flex-direction:column;gap:14px">'
+
+            for date_val in dates_sorted:
+                day_rows = display_df[display_df["날짜"] == date_val].reset_index(drop=True)
+
+                # 날짜 헤더
+                timeline_html += f"""
+                <div style="background:white;border-radius:18px;padding:16px 20px;box-shadow:0 2px 10px rgba(0,0,0,0.06);border-left:4px solid #a855f7">
+                    <div style="font-size:13px;font-weight:700;color:#7c3aed;margin-bottom:10px;display:flex;align-items:center;gap:8px">
+                        <span style="background:linear-gradient(135deg,#ede9fe,#ddd6fe);padding:3px 12px;border-radius:20px;font-size:12px">[{date_val} — 트레이닝 자리]</span>
                     </div>
-                    """, unsafe_allow_html=True)
+                    <div style="display:flex;flex-direction:column;gap:6px">
+                """
 
-        # 전체 현황 요약
-        active_count = sum(1 for v in pc_data.values() if v)
-        total_pcs = len(pc_ids_all)
+                for i, row in day_rows.iterrows():
+                    seat = row["자리번호"]
+                    machine = row["장비명"]
+                    person = row["담당자"]
+                    memo = row["메모"]
+                    extra = f" · {memo}" if memo else ""
 
-        st.markdown(f"""
-        <div style="background:white;border-radius:16px;padding:16px 20px;box-shadow:var(--shadow-card);margin-top:8px;display:flex;align-items:center;gap:24px">
-            <div style="text-align:center">
-                <div style="font-size:22px;font-weight:700;color:#7c3aed">{active_count}</div>
-                <div style="font-size:11px;color:#9ca3af;font-weight:500">사용 중</div>
-            </div>
-            <div style="text-align:center">
-                <div style="font-size:22px;font-weight:700;color:#9ca3af">{total_pcs - active_count}</div>
-                <div style="font-size:11px;color:#9ca3af;font-weight:500">비어있음</div>
-            </div>
-            <div style="flex:1;background:#f3f4f6;border-radius:8px;height:8px;overflow:hidden">
-                <div style="background:linear-gradient(90deg,#a855f7,#7c3aed);width:{int(active_count/total_pcs*100)}%;height:100%;border-radius:8px;transition:width 0.5s"></div>
-            </div>
-            <div style="font-size:13px;font-weight:600;color:#7c3aed">{int(active_count/total_pcs*100)}%</div>
-        </div>
-        """, unsafe_allow_html=True)
+                    timeline_html += f"""
+                    <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;background:#faf5ff;border-radius:10px">
+                        <span style="background:#7c3aed;color:white;font-size:10px;font-weight:700;padding:2px 8px;border-radius:12px;min-width:24px;text-align:center">{i+1}</span>
+                        <span style="font-size:13px;font-weight:600;color:#374151;flex:1">{machine}</span>
+                        <span style="font-size:11px;color:#6b7280;background:#f3f4f6;padding:2px 8px;border-radius:8px">{seat}</span>
+                        <span style="font-size:11px;color:#7c3aed;font-weight:600;min-width:60px;text-align:right">{person}{extra}</span>
+                    </div>
+                    """
+
+                timeline_html += "</div></div>"
+
+            timeline_html += "</div>"
+            st.markdown(timeline_html, unsafe_allow_html=True)
+
+            # ── 원본 테이블 (접기) ──
+            with st.expander("📋 전체 데이터 테이블 보기"):
+                show_df = display_df[["날짜", "자리번호", "장비명", "담당자", "메모"]].copy()
+                st.dataframe(show_df, use_container_width=True, hide_index=True, height=300)
