@@ -729,6 +729,8 @@ if "record_msg" not in st.session_state:
     st.session_state.record_msg = None
 if "active_tab" not in st.session_state:
     st.session_state.active_tab = 0
+if "search_history" not in st.session_state:
+    st.session_state.search_history = []
 
 # ──────────────────────────────────────────────
 # 탭 레이아웃
@@ -832,6 +834,9 @@ with tab1:
                         result, label = search_data(df, search_q)
                         st.session_state.search_result = result
                         st.session_state.search_label = label
+                        if label and label not in st.session_state.search_history:
+                            st.session_state.search_history.insert(0, search_q)
+                            st.session_state.search_history = st.session_state.search_history[:5]
                     except Exception as e:
                         st.error(f"검색 오류: {e}")
         with col_s2:
@@ -843,18 +848,20 @@ with tab1:
                 except Exception as e:
                     st.error(f"오류: {e}")
 
-        # 빠른 검색 칩
-        st.markdown('<div class="sec-label" style="margin-top:12px">⚡ 빠른 검색</div>', unsafe_allow_html=True)
-        quick_machines = list(MACHINE_MAP.keys())[:6]
-        for m in quick_machines:
-            if st.button(m, key=f"quick_{m}", use_container_width=True):
-                try:
-                    df = load_all_data()
-                    result = df[df["장비명"].str.contains("|".join(MACHINE_MAP[m]), case=False, na=False)]
-                    st.session_state.search_result = result
-                    st.session_state.search_label = m
-                except Exception as e:
-                    st.error(f"오류: {e}")
+        # 최근 검색 내역
+        st.markdown('<div class="sec-label" style="margin-top:12px">🕐 최근 검색 내역</div>', unsafe_allow_html=True)
+        if st.session_state.search_history:
+            for i, recent_q in enumerate(st.session_state.search_history):
+                if st.button(f"🔍 {recent_q}", key=f"recent_{i}", use_container_width=True):
+                    try:
+                        df = load_all_data()
+                        result, label = search_data(df, recent_q)
+                        st.session_state.search_result = result
+                        st.session_state.search_label = label
+                    except Exception as e:
+                        st.error(f"오류: {e}")
+        else:
+            st.markdown('<div class="sec-alert" style="font-size:12px;text-align:center">검색 내역이 없습니다</div>', unsafe_allow_html=True)
 
     # ── 오른쪽: 결과 패널 ──
     with col_main:
@@ -1008,14 +1015,6 @@ with tab2:
             label_visibility="collapsed",
         )
 
-        # 자리번호 — 텍스트 입력 (1번, 2번, PC-01 등 자유 입력)
-        assign_seat = st.text_input(
-            "자리번호",
-            placeholder="예) 1번, 2번, PC-A, 좌측3번",
-            key="pc_seat",
-            label_visibility="collapsed",
-        )
-
         # 장비명
         assign_machine = st.selectbox(
             "장비명",
@@ -1049,27 +1048,23 @@ with tab2:
         )
 
         if st.button("⚡ 배정 기록 저장", type="primary", use_container_width=True, key="btn_pc_save2"):
-            if not assign_seat.strip():
-                st.error("자리번호를 입력해주세요.")
+            machine_final = assign_machine_custom.strip() if assign_machine_custom.strip() else assign_machine
+            if machine_final == "(장비 자동감지)":
+                st.error("장비명을 선택하거나 직접 입력해주세요.")
             else:
-                # 장비명: 직접입력 우선, 없으면 selectbox
-                machine_final = assign_machine_custom.strip() if assign_machine_custom.strip() else assign_machine
-                if machine_final == "(장비 자동감지)":
-                    st.error("장비명을 선택하거나 직접 입력해주세요.")
-                else:
-                    try:
-                        date_str = assign_date.strftime("%y%m%d")  # 260319 형식
-                        save_pc_assignment(
-                            date_str,
-                            assign_seat.strip(),
-                            machine_final,
-                            assign_person.strip(),
-                            assign_memo.strip(),
-                        )
-                        st.success(f"✅ [{date_str}] {assign_seat} → {machine_final} 저장!")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"저장 실패: {e}")
+                try:
+                    date_str = assign_date.strftime("%y%m%d")
+                    save_pc_assignment(
+                        date_str,
+                        "",
+                        machine_final,
+                        assign_person.strip(),
+                        assign_memo.strip(),
+                    )
+                    st.success(f"✅ [{date_str}] {machine_final} 저장!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"저장 실패: {e}")
 
         st.markdown('<div class="sec-divider"></div>', unsafe_allow_html=True)
 
@@ -1111,9 +1106,9 @@ with tab2:
     # ── 오른쪽: 이력 조회 & 타임라인 ──
     with col_pc_main:
         try:
+            load_pc_assignments.clear()
             pc_df = load_pc_assignments()
-        except Exception as e:
-            st.error(f"데이터 로드 실패: {e}")
+        except Exception:
             pc_df = pd.DataFrame(columns=["날짜", "자리번호", "장비명", "담당자", "메모"])
 
         # 필터 적용
