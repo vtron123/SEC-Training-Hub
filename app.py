@@ -514,6 +514,22 @@ def get_logo_base64() -> str | None:
                 pass
     return None
 
+@st.cache_data
+def get_penguin_base64() -> str | None:
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    for name in ["penguin.png", "penguin.jpg", "character.png"]:
+        path = os.path.join(base_dir, name)
+        if os.path.exists(path):
+            try:
+                img = Image.open(path).convert("RGBA")
+                img = img.resize((200, 200), Image.LANCZOS)
+                buf = io.BytesIO()
+                img.save(buf, format="PNG")
+                return base64.b64encode(buf.getvalue()).decode()
+            except Exception:
+                pass
+    return None
+
 # ──────────────────────────────────────────────
 # 상수 & 매핑
 # ──────────────────────────────────────────────
@@ -702,6 +718,65 @@ def delete_pc_assignment(row_index: int):
     return True
 
 # ──────────────────────────────────────────────
+# 일정 시트 (3번째 탭)
+# ──────────────────────────────────────────────
+def get_schedule_sheet():
+    try:
+        client = get_sheet_client()
+        wb = client.open(SHEET_NAME)
+        try:
+            return wb.get_worksheet(2)
+        except Exception:
+            ws = wb.add_worksheet(title="일정", rows=1000, cols=6)
+            ws.insert_row(["날짜", "제목", "메모", "완료"], index=1)
+            return ws
+    except Exception:
+        return None
+
+@st.cache_data(ttl=30)
+def load_schedules():
+    sheet = get_schedule_sheet()
+    if sheet is None:
+        return pd.DataFrame(columns=["_row", "날짜", "제목", "메모", "완료"])
+    rows = sheet.get_all_values()
+    if not rows or len(rows) <= 1:
+        return pd.DataFrame(columns=["_row", "날짜", "제목", "메모", "완료"])
+    data_rows = rows[1:] if rows[0][0] == "날짜" else rows
+    records = []
+    for i, row in enumerate(data_rows):
+        while len(row) < 4:
+            row.append("")
+        records.append({"_row": i + 2, "날짜": row[0], "제목": row[1], "메모": row[2], "완료": row[3]})
+    return pd.DataFrame(records)
+
+def save_schedule(date_str: str, title: str, memo: str):
+    sheet = get_schedule_sheet()
+    if sheet is None:
+        return False
+    rows = sheet.get_all_values()
+    if not rows or rows[0][0] != "날짜":
+        sheet.insert_row(["날짜", "제목", "메모", "완료"], index=1)
+    sheet.append_row([date_str, title, memo, ""])
+    load_schedules.clear()
+    return True
+
+def toggle_schedule_done(actual_row: int, is_done: bool):
+    sheet = get_schedule_sheet()
+    if sheet is None:
+        return False
+    sheet.update_cell(actual_row, 4, "" if is_done else "✅")
+    load_schedules.clear()
+    return True
+
+def delete_schedule_row(actual_row: int):
+    sheet = get_schedule_sheet()
+    if sheet is None:
+        return False
+    sheet.delete_rows(actual_row)
+    load_schedules.clear()
+    return True
+
+# ──────────────────────────────────────────────
 # 헤더
 # ──────────────────────────────────────────────
 _logo_b64 = get_logo_base64()
@@ -748,7 +823,7 @@ if "search_history" not in st.session_state:
 # ──────────────────────────────────────────────
 # 탭 레이아웃
 # ──────────────────────────────────────────────
-tab1, tab2 = st.tabs(["  📊  학습 이력  ", "  🖥️  트레이닝 PC 자리  "])
+tab1, tab2, tab3 = st.tabs(["  📊  학습 이력  ", "  🖥️  트레이닝 PC 자리  ", "  📅  일정 & 메모  "])
 
 # ══════════════════════════════════════════════
 # TAB 1 — 학습 이력
@@ -1217,3 +1292,200 @@ with tab2:
                     show_cols = ["날짜", "자리번호", "장비명", "담당자", "메모"]
                 show_df = display_df[show_cols].copy()
                 st.dataframe(show_df, use_container_width=True, hide_index=True, height=300)
+
+
+# ══════════════════════════════════════════════
+# TAB 3 — 일정 & 메모
+# ══════════════════════════════════════════════
+with tab3:
+    col_sch_side, col_sch_main = st.columns([1, 2.4], gap="large")
+
+    # ── 왼쪽: 입력 & 목록 ──
+    with col_sch_side:
+        st.markdown('<div class="sec-label">📝 일정 추가</div>', unsafe_allow_html=True)
+
+        sch_date = st.date_input(
+            "날짜", value=datetime.date.today(), key="sch_date", label_visibility="collapsed"
+        )
+        sch_title = st.text_input(
+            "제목", placeholder="일정 제목을 입력하세요", key="sch_title", label_visibility="collapsed"
+        )
+        sch_memo = st.text_area(
+            "메모", placeholder="추가 메모 (선택)", height=80, key="sch_memo", label_visibility="collapsed"
+        )
+
+        if st.button("📅 일정 저장", type="primary", use_container_width=True, key="btn_sch_save"):
+            if sch_title.strip():
+                try:
+                    save_schedule(sch_date.strftime("%Y-%m-%d"), sch_title.strip(), sch_memo.strip())
+                    st.success("✅ 저장됐어요!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"저장 실패: {e}")
+            else:
+                st.error("제목을 입력해주세요.")
+
+        st.markdown('<div class="sec-divider"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="sec-label">📋 등록된 일정</div>', unsafe_allow_html=True)
+
+        try:
+            load_schedules.clear()
+            sch_df = load_schedules()
+        except Exception:
+            sch_df = pd.DataFrame(columns=["_row", "날짜", "제목", "메모", "완료"])
+
+        if sch_df.empty:
+            st.markdown('<div class="sec-alert" style="font-size:12px;text-align:center">등록된 일정이 없습니다</div>', unsafe_allow_html=True)
+        else:
+            sch_sorted = sch_df.sort_values("날짜")
+            for _, row in sch_sorted.iterrows():
+                actual_row = int(row["_row"])
+                is_done = row["완료"] == "✅"
+                txt_color = "#9ca3af" if is_done else "#374151"
+                strike = "line-through" if is_done else "none"
+                memo_html = f'<div style="font-size:11px;color:#9ca3af;margin-top:2px">{html_lib.escape(str(row["메모"]))}</div>' if row["메모"] else ""
+                st.markdown(f"""
+                <div style="background:white;border-radius:12px;padding:10px 14px;margin-bottom:6px;box-shadow:0 1px 6px rgba(0,0,0,0.06)">
+                    <div style="font-size:10px;color:#a855f7;font-weight:600">{html_lib.escape(str(row['날짜']))}</div>
+                    <div style="font-size:13px;font-weight:600;color:{txt_color};text-decoration:{strike}">{html_lib.escape(str(row['제목']))}</div>
+                    {memo_html}
+                </div>
+                """, unsafe_allow_html=True)
+                c1, c2 = st.columns(2)
+                with c1:
+                    if st.button("↩️ 취소" if is_done else "✅ 완료", key=f"sch_done_{actual_row}", use_container_width=True):
+                        try:
+                            toggle_schedule_done(actual_row, is_done)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(str(e))
+                with c2:
+                    if st.button("🗑️ 삭제", key=f"sch_del_{actual_row}", use_container_width=True):
+                        try:
+                            delete_schedule_row(actual_row)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(str(e))
+
+    # ── 오른쪽: 캐릭터 + 말풍선 + 일정 현황 ──
+    with col_sch_main:
+        try:
+            sch_df_main = load_schedules()
+        except Exception:
+            sch_df_main = pd.DataFrame(columns=["_row", "날짜", "제목", "메모", "완료"])
+
+        today = datetime.date.today()
+
+        # ── 날짜 분류 ──
+        today_tasks, tomorrow_tasks, soon_tasks, overdue_tasks = [], [], [], []
+        for _, row in sch_df_main.iterrows():
+            if row["완료"] == "✅":
+                continue
+            try:
+                d = datetime.datetime.strptime(row["날짜"], "%Y-%m-%d").date()
+                delta = (d - today).days
+                title_e = html_lib.escape(str(row["제목"]))
+                if delta == 0:
+                    today_tasks.append(title_e)
+                elif delta == 1:
+                    tomorrow_tasks.append(title_e)
+                elif 2 <= delta <= 7:
+                    soon_tasks.append((delta, title_e))
+                elif delta < 0:
+                    overdue_tasks.append(title_e)
+            except Exception:
+                pass
+
+        # ── 말풍선 메시지 구성 ──
+        bubble_sections = []
+        if today_tasks:
+            bubble_sections.append(("🔔", "오늘의 할 일!", today_tasks, "#7c3aed", "#f5f3ff"))
+        if overdue_tasks:
+            bubble_sections.append(("⚠️", "지난 일정을 확인해주세요!", overdue_tasks, "#b91c1c", "#fff1f2"))
+        if tomorrow_tasks:
+            bubble_sections.append(("⏰", "내일 이런 일이 있어요!", tomorrow_tasks, "#1d4ed8", "#dbeafe"))
+        for delta, title in soon_tasks[:3]:
+            bubble_sections.append(("📅", f"{delta}일 후 일정이에요!", [title], "#15803d", "#dcfce7"))
+        if not bubble_sections:
+            bubble_sections = [("😊", "오늘은 여유로운 하루예요!", ["일정을 추가하면 알려드릴게요 ✨"], "#7c3aed", "#f5f3ff")]
+
+        # ── 말풍선 HTML ──
+        bubble_inner = ""
+        for icon, heading, items, color, bg in bubble_sections:
+            items_html = "".join(
+                f'<div style="font-size:13px;color:#374151;padding-left:8px;margin-top:3px">→ {t}</div>'
+                for t in items
+            )
+            bubble_inner += f"""
+            <div style="margin-bottom:10px;padding:10px 14px;background:{bg};border-radius:12px;border-left:3px solid {color}">
+                <div style="font-size:13px;font-weight:700;color:{color}">{icon} {heading}</div>
+                {items_html}
+            </div>
+            """
+
+        # ── 캐릭터 이미지 ──
+        _penguin_b64 = get_penguin_base64()
+        char_img = (
+            f'<img src="data:image/png;base64,{_penguin_b64}" style="width:180px;height:180px;object-fit:contain;margin-top:8px" />'
+            if _penguin_b64 else
+            '<div style="font-size:110px;line-height:1;margin-top:8px">🐧</div>'
+        )
+
+        st.markdown(f"""
+        <div style="display:flex;flex-direction:column;align-items:center;padding:8px 0 24px">
+            <div style="position:relative;background:white;border-radius:22px;padding:20px 24px;
+                        box-shadow:0 6px 32px rgba(168,85,247,0.18);border:2px solid rgba(168,85,247,0.22);
+                        max-width:460px;width:100%;margin-bottom:28px">
+                <div style="font-size:11px;font-weight:700;color:#a855f7;text-transform:uppercase;
+                            letter-spacing:1px;margin-bottom:12px">✨ 오늘의 브리핑 — {today.strftime('%Y.%m.%d')}</div>
+                {bubble_inner}
+                <div style="position:absolute;bottom:-18px;left:50%;transform:translateX(-50%);
+                            width:0;height:0;border-left:12px solid transparent;border-right:12px solid transparent;
+                            border-top:18px solid white"></div>
+            </div>
+            {char_img}
+        </div>
+        """, unsafe_allow_html=True)
+
+        # ── 다가오는 일정 테이블 ──
+        st.markdown('<div class="sec-label">📅 다가오는 일정 현황</div>', unsafe_allow_html=True)
+
+        upcoming = sch_df_main[sch_df_main["완료"] != "✅"].copy() if not sch_df_main.empty else pd.DataFrame()
+
+        if upcoming.empty:
+            st.markdown('<div class="sec-alert">등록된 일정이 없어요!</div>', unsafe_allow_html=True)
+        else:
+            upcoming = upcoming.sort_values("날짜")
+            rows_html = ""
+            for _, row in upcoming.iterrows():
+                try:
+                    d = datetime.datetime.strptime(row["날짜"], "%Y-%m-%d").date()
+                    delta = (d - today).days
+                    if delta == 0:
+                        badge = '<span style="background:#7c3aed;color:white;font-size:10px;padding:2px 9px;border-radius:12px;font-weight:700">오늘</span>'
+                    elif delta == 1:
+                        badge = '<span style="background:#2563eb;color:white;font-size:10px;padding:2px 9px;border-radius:12px;font-weight:700">내일</span>'
+                    elif delta < 0:
+                        badge = f'<span style="background:#dc2626;color:white;font-size:10px;padding:2px 9px;border-radius:12px;font-weight:700">{abs(delta)}일 지남</span>'
+                    else:
+                        badge = f'<span style="background:#16a34a;color:white;font-size:10px;padding:2px 9px;border-radius:12px;font-weight:700">D-{delta}</span>'
+                except Exception:
+                    badge = ""
+
+                rows_html += f"""
+                <tr>
+                    <td style="text-align:center">{badge}</td>
+                    <td style="font-size:12px;color:#6b7280">{html_lib.escape(str(row['날짜']))}</td>
+                    <td style="font-weight:600;color:#374151">{html_lib.escape(str(row['제목']))}</td>
+                    <td style="font-size:12px;color:#9ca3af">{html_lib.escape(str(row['메모']))}</td>
+                </tr>
+                """
+
+            st.markdown(f"""
+            <div style="background:white;border-radius:20px;padding:4px;box-shadow:var(--shadow-card);overflow:hidden">
+            <table class="result-table">
+                <thead><tr><th style="text-align:center">D-day</th><th>날짜</th><th>일정</th><th>메모</th></tr></thead>
+                <tbody>{rows_html}</tbody>
+            </table>
+            </div>
+            """, unsafe_allow_html=True)
