@@ -1562,16 +1562,7 @@ with tab3:
                             st.session_state.editing_schedule = None
                             st.rerun()
 
-            # ── 헤더 ──
-            hcols = st.columns([1, 2.5, 3, 2, 1])
-            for txt, col in zip(["D-DAY", "기간", "일정", "메모", ""], hcols):
-                col.markdown(
-                    f'<div style="font-size:11px;font-weight:600;color:#a855f7;'
-                    f'text-transform:uppercase;letter-spacing:0.5px;padding:6px 4px;'
-                    f'border-bottom:1px solid #e9d5ff">{txt}</div>', unsafe_allow_html=True
-                )
-
-            # ── 행 렌더링 ──
+            # ── 행 렌더링 (카드형) ──
             for _, row in upcoming.iterrows():
                 actual_row = int(row["_row"])
                 d = _parse_end_date(row["날짜"])
@@ -1580,36 +1571,36 @@ with tab3:
                 else:
                     delta = (d - today).days
                     if delta == 0:
-                        badge_html = '<span style="background:#7c3aed;color:white;font-size:10px;padding:2px 9px;border-radius:12px;font-weight:700">오늘</span>'
+                        badge_html = '<span style="background:#7c3aed;color:white;font-size:10px;padding:3px 10px;border-radius:12px;font-weight:700">오늘</span>'
                     elif delta == 1:
-                        badge_html = '<span style="background:#2563eb;color:white;font-size:10px;padding:2px 9px;border-radius:12px;font-weight:700">내일</span>'
+                        badge_html = '<span style="background:#2563eb;color:white;font-size:10px;padding:3px 10px;border-radius:12px;font-weight:700">내일</span>'
                     elif delta < 0:
-                        badge_html = '<span style="background:#dc2626;color:white;font-size:10px;padding:2px 9px;border-radius:12px;font-weight:700">' + str(abs(delta)) + '일 지남</span>'
+                        badge_html = '<span style="background:#dc2626;color:white;font-size:10px;padding:3px 10px;border-radius:12px;font-weight:700">' + str(abs(delta)) + '일 지남</span>'
                     else:
-                        badge_html = '<span style="background:#16a34a;color:white;font-size:10px;padding:2px 9px;border-radius:12px;font-weight:700">D-' + str(delta) + '</span>'
+                        badge_html = '<span style="background:#16a34a;color:white;font-size:10px;padding:3px 10px;border-radius:12px;font-weight:700">D-' + str(delta) + '</span>'
 
                 is_editing_this = (es is not None and es["row"] == actual_row)
-                row_bg = "background:#f5f0ff;" if is_editing_this else ""
+                card_border = "border:2px solid #a855f7;" if is_editing_this else "border:1px solid rgba(255,255,255,0.8);"
 
-                rc = st.columns([1, 2.5, 3, 2, 1])
-                with rc[0]:
-                    st.markdown(f'<div style="padding:8px 4px;{row_bg}">{badge_html}</div>', unsafe_allow_html=True)
-                with rc[1]:
+                date_e  = html_lib.escape(str(row["날짜"]))
+                title_e = html_lib.escape(str(row["제목"]))
+                memo_e  = html_lib.escape(str(row["메모"]))
+                memo_part = ('<span style="font-size:11px;color:#9ca3af;margin-left:8px">' + memo_e + '</span>') if memo_e else ""
+
+                col_card, col_btn = st.columns([10, 1])
+                with col_card:
                     st.markdown(
-                        '<div style="font-size:12px;color:#6b7280;padding:8px 4px;' + row_bg + '">'
-                        + html_lib.escape(str(row["날짜"])) + '</div>', unsafe_allow_html=True
+                        '<div style="background:white;border-radius:14px;padding:12px 18px;'
+                        'box-shadow:0 2px 10px rgba(0,0,0,0.06);margin-bottom:6px;' + card_border + '">'
+                        '<div style="display:flex;align-items:center;gap:12px">'
+                        '<div style="min-width:60px;text-align:center">' + badge_html + '</div>'
+                        '<div style="font-size:11px;color:#9ca3af;min-width:160px">' + date_e + '</div>'
+                        '<div style="font-size:13px;font-weight:600;color:#374151;flex:1">'
+                        + title_e + memo_part + '</div>'
+                        '</div></div>',
+                        unsafe_allow_html=True
                     )
-                with rc[2]:
-                    st.markdown(
-                        '<div style="font-size:13px;font-weight:600;color:#374151;padding:8px 4px;' + row_bg + '">'
-                        + html_lib.escape(str(row["제목"])) + '</div>', unsafe_allow_html=True
-                    )
-                with rc[3]:
-                    st.markdown(
-                        '<div style="font-size:12px;color:#9ca3af;padding:8px 4px;' + row_bg + '">'
-                        + html_lib.escape(str(row["메모"])) + '</div>', unsafe_allow_html=True
-                    )
-                with rc[4]:
+                with col_btn:
                     if st.button("✏️", key=f"edit_btn_{actual_row}", use_container_width=True,
                                  help="일정 수정"):
                         st.session_state.editing_schedule = {
