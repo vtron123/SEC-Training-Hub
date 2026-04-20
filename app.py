@@ -1752,26 +1752,35 @@ _KL2_SCHEDULE: list[dict] = [
 ]
 _KL2_TARGET = {"수원삼성", "수원FC"}
 
-def _get_sport_schedule(schedule: list, target: set, today: datetime.date) -> tuple[list, str]:
+def _date_label(date_str: str) -> str:
+    try:
+        d = datetime.datetime.strptime(date_str, "%Y-%m-%d")
+        return f"{d.month}/{d.day}({_WEEKDAY_KO[d.weekday()]})"
+    except Exception:
+        return date_str
+
+def _get_sport_schedule_items(schedule: list, target: set, today: datetime.date) -> list[dict]:
+    """각 팀별로 오늘 또는 다음 경기를 찾아 {game, label, is_today} 리스트로 반환"""
     today_str = today.strftime("%Y-%m-%d")
-    today_games = [g for g in schedule if g["date"] == today_str
-                   and (g.get("home") in target or g.get("away") in target)]
-    if today_games:
-        return today_games, "오늘"
-    future = sorted(
-        [g for g in schedule if g["date"] > today_str
+    all_rel = sorted(
+        [g for g in schedule if g["date"] >= today_str
          and (g.get("home") in target or g.get("away") in target)],
         key=lambda x: x["date"]
     )
-    if not future:
-        return [], ""
-    next_date = future[0]["date"]
-    try:
-        d = datetime.datetime.strptime(next_date, "%Y-%m-%d")
-        label = f"{d.month}/{d.day}({_WEEKDAY_KO[d.weekday()]}) 다음 경기"
-    except Exception:
-        label = next_date
-    return [g for g in future if g["date"] == next_date], label
+    seen_keys: set = set()
+    result = []
+    for team in sorted(target):
+        team_games = [g for g in all_rel if g.get("home") == team or g.get("away") == team]
+        if not team_games:
+            continue
+        g = team_games[0]
+        key = (g["date"], g.get("home"), g.get("away"))
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        is_today = g["date"] == today_str
+        result.append({"game": g, "label": "오늘" if is_today else _date_label(g["date"]), "is_today": is_today})
+    return sorted(result, key=lambda x: x["game"]["date"])
 
 @st.cache_data(ttl=600)
 def fetch_kbo_live_today(date_str: str) -> list:
@@ -1883,38 +1892,59 @@ def _utc_to_kst(utc_str: str) -> str:
     except Exception:
         return ""
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=300)
 def fetch_mlb_games(date_str: str) -> list:
+    """MLB 오늘 KST 경기 조회 — 어제+오늘 US날짜 모두 조회해 KST 당일 경기만 필터"""
     try:
         ids = ",".join(map(str, _MLB_TEAMS.keys()))
-        url = (
-            "https://statsapi.mlb.com/api/v1/schedule"
-            f"?sportId=1&date={date_str}&teamIds={ids}"
-            "&hydrate=probablePitcher,linescore,team"
-        )
-        data = _req.get(url, timeout=12).json()
-        results = []
-        for date_obj in data.get("dates", []):
-            for g in date_obj.get("games", []):
-                ht = g["teams"]["home"]
-                at = g["teams"]["away"]
-                our_id = ht["team"]["id"] if ht["team"]["id"] in _MLB_TEAMS else at["team"]["id"]
-                status = g["status"]["abstractGameState"]
-                ls = g.get("linescore") or {}
-                results.append({
-                    "our_ko":        _MLB_TEAMS.get(our_id, ""),
-                    "our_id":        our_id,
-                    "home":          ht["team"]["name"],
-                    "away":          at["team"]["name"],
-                    "home_score":    ht.get("score", ""),
-                    "away_score":    at.get("score", ""),
-                    "status":        status,
-                    "game_time_kst": _utc_to_kst(g.get("gameDate", "")),
-                    "home_pitcher":  (ht.get("probablePitcher") or {}).get("fullName", "미정"),
-                    "away_pitcher":  (at.get("probablePitcher") or {}).get("fullName", "미정"),
-                    "inning":        ls.get("currentInning", ""),
-                    "inning_half":   ls.get("inningHalf", ""),
-                })
+        today_kst = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
+        prev_str  = (today_kst - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+        results: list = []
+        seen_pks: set = set()
+        for query_date in [prev_str, date_str]:
+            url = (
+                "https://statsapi.mlb.com/api/v1/schedule"
+                f"?sportId=1&date={query_date}&teamIds={ids}"
+                "&hydrate=probablePitcher,linescore,team"
+            )
+            data = _req.get(url, timeout=12).json()
+            for date_obj in data.get("dates", []):
+                for g in date_obj.get("games", []):
+                    pk = g.get("gamePk")
+                    if pk in seen_pks:
+                        continue
+                    # KST 날짜 필터 — 어제 US 경기도 KST 오늘이면 포함
+                    raw_date = g.get("gameDate", "")
+                    try:
+                        game_kst_date = (
+                            datetime.datetime.strptime(raw_date[:19], "%Y-%m-%dT%H:%M:%S")
+                            + datetime.timedelta(hours=9)
+                        ).date()
+                        if game_kst_date != today_kst:
+                            continue
+                    except Exception:
+                        pass
+                    seen_pks.add(pk)
+                    ht = g["teams"]["home"]
+                    at = g["teams"]["away"]
+                    our_id = (ht["team"]["id"] if ht["team"]["id"] in _MLB_TEAMS
+                              else at["team"]["id"])
+                    status = g["status"]["abstractGameState"]
+                    ls = g.get("linescore") or {}
+                    results.append({
+                        "our_ko":        _MLB_TEAMS.get(our_id, ""),
+                        "our_id":        our_id,
+                        "home":          ht["team"]["name"],
+                        "away":          at["team"]["name"],
+                        "home_score":    ht.get("score", ""),
+                        "away_score":    at.get("score", ""),
+                        "status":        status,
+                        "game_time_kst": _utc_to_kst(raw_date),
+                        "home_pitcher":  (ht.get("probablePitcher") or {}).get("fullName", "미정"),
+                        "away_pitcher":  (at.get("probablePitcher") or {}).get("fullName", "미정"),
+                        "inning":        ls.get("currentInning", ""),
+                        "inning_half":   ls.get("inningHalf", ""),
+                    })
         return results
     except Exception:
         return []
@@ -2054,19 +2084,21 @@ with tab4:
                 )
 
         # ── KBO 경기 ──
-        kbo_games, kbo_label = _get_sport_schedule(_KBO_SCHEDULE, _KBO_TARGET, _today_kst())
-        is_kbo_today = kbo_label == "오늘"
-        kbo_live = fetch_kbo_live_today(today_str4) if is_kbo_today else []
-        label_color = "#dc2626" if is_kbo_today else "#7c3aed"
-        st.markdown(
-            '<div class="sec-label" style="margin-top:14px">⚾ KBO (한화·롯데) — '
-            '<span style="color:' + label_color + ';font-weight:700">' + html_lib.escape(kbo_label) + '</span></div>',
-            unsafe_allow_html=True
-        )
-        if kbo_games:
-            for kg in kbo_games:
-                st.markdown(_sport_card(kg, is_kbo_today, kbo_live, "#e65c00"), unsafe_allow_html=True)
-            if is_kbo_today:
+        st.markdown('<div class="sec-label" style="margin-top:14px">⚾ KBO (한화·롯데)</div>', unsafe_allow_html=True)
+        kbo_items = _get_sport_schedule_items(_KBO_SCHEDULE, _KBO_TARGET, _today_kst())
+        any_kbo_today = any(it["is_today"] for it in kbo_items)
+        kbo_live = fetch_kbo_live_today(today_str4) if any_kbo_today else []
+        if kbo_items:
+            for it in kbo_items:
+                kg, lbl, is_td = it["game"], it["label"], it["is_today"]
+                lbl_color = "#dc2626" if is_td else "#9ca3af"
+                st.markdown(
+                    '<div style="font-size:10px;color:' + lbl_color + ';font-weight:' + ("700" if is_td else "400") + ';margin:6px 0 2px 2px">'
+                    + ("🔴 " if is_td else "📅 ") + html_lib.escape(lbl) + '</div>',
+                    unsafe_allow_html=True
+                )
+                st.markdown(_sport_card(kg, is_td, kbo_live, "#e65c00"), unsafe_allow_html=True)
+            if any_kbo_today:
                 lineup_hint = fetch_lineup_news("한화이글스 OR 롯데자이언츠")
                 if lineup_hint:
                     st.markdown(
@@ -2079,17 +2111,18 @@ with tab4:
             st.markdown('<div class="sec-alert">5월 이후 일정은 추후 업데이트 예정</div>', unsafe_allow_html=True)
 
         # ── K리그2 경기 ──
-        kl2_games, kl2_label = _get_sport_schedule(_KL2_SCHEDULE, _KL2_TARGET, _today_kst())
-        is_kl2_today = kl2_label == "오늘"
-        label_color2 = "#dc2626" if is_kl2_today else "#7c3aed"
-        st.markdown(
-            '<div class="sec-label" style="margin-top:14px">⚽ K리그2 (수원삼성·수원FC) — '
-            '<span style="color:' + label_color2 + ';font-weight:700">' + html_lib.escape(kl2_label) + '</span></div>',
-            unsafe_allow_html=True
-        )
-        if kl2_games:
-            for kg in kl2_games:
-                st.markdown(_sport_card(kg, is_kl2_today, [], "#1a7f4b"), unsafe_allow_html=True)
+        st.markdown('<div class="sec-label" style="margin-top:14px">⚽ K리그2 (수원삼성·수원FC)</div>', unsafe_allow_html=True)
+        kl2_items = _get_sport_schedule_items(_KL2_SCHEDULE, _KL2_TARGET, _today_kst())
+        if kl2_items:
+            for it in kl2_items:
+                kg, lbl, is_td = it["game"], it["label"], it["is_today"]
+                lbl_color = "#dc2626" if is_td else "#9ca3af"
+                st.markdown(
+                    '<div style="font-size:10px;color:' + lbl_color + ';font-weight:' + ("700" if is_td else "400") + ';margin:6px 0 2px 2px">'
+                    + ("🔴 " if is_td else "📅 ") + html_lib.escape(lbl) + '</div>',
+                    unsafe_allow_html=True
+                )
+                st.markdown(_sport_card(kg, is_td, [], "#1a7f4b"), unsafe_allow_html=True)
         else:
             st.markdown('<div class="sec-alert">5월 이후 일정은 추후 업데이트 예정</div>', unsafe_allow_html=True)
 
@@ -2113,12 +2146,13 @@ with tab4:
             _news_cards(soccer_news, "축구 소식을 불러올 수 없어요.")
 
         with ntab3:
-            q_anime = quote("일본 애니메이션 신작 OR 애니 방영 OR 극장판 OR 애니 2026")
-            q_manga = quote("일본 만화 신간 OR 만화책 신작 OR 점프 OR 소년점프 OR 원피스 OR 나루토 OR 만화 완결")
-            anime_news = _fetch_fast_rss(
-                f"https://news.google.com/rss/search?q={q_anime}&hl=ko&gl=KR&ceid=KR:ko", max_items=6
+            # 인기 시리즈 최신 소식 + 신작 애니 (3개월 이내 구글 뉴스 자동 정렬)
+            q_series = quote("헌터x헌터 OR 원피스 OR 주술회전 OR 귀멸의칼날 OR 나의히어로아카데미아 OR 진격의거인 OR 드래곤볼")
+            q_new = quote("2026 애니메이션 신작 OR 신규 방영 OR 극장판 개봉 OR 소년점프 신작 OR 만화 완결")
+            series_news = _fetch_fast_rss(
+                f"https://news.google.com/rss/search?q={q_series}&hl=ko&gl=KR&ceid=KR:ko", max_items=6
             )
-            manga_news = _fetch_fast_rss(
-                f"https://news.google.com/rss/search?q={q_manga}&hl=ko&gl=KR&ceid=KR:ko", max_items=5
+            new_news = _fetch_fast_rss(
+                f"https://news.google.com/rss/search?q={q_new}&hl=ko&gl=KR&ceid=KR:ko", max_items=5
             )
-            _news_cards(anime_news + manga_news, "애니/만화 소식을 불러올 수 없어요.")
+            _news_cards(series_news + new_news, "애니/만화 소식을 불러올 수 없어요.")
