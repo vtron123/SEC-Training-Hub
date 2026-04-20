@@ -2406,14 +2406,17 @@ def _merge_rss(urls: list[str], max_per: int = 8, limit: int = 10,
                 all_items.append(it)
     return sorted(all_items, key=lambda x: x.get("sort_ts", 0), reverse=True)[:limit]
 
-@st.cache_data(ttl=86400)
+# 성공한 번역만 캐시 (실패는 캐시 안 해서 매 렌더마다 재시도)
+_translate_cache: dict[str, str] = {}
+
 def _translate_ko(text: str) -> str:
-    """Google 비공식 번역 API → 한국어 (TTL 24시간 캐시)"""
+    """Google 비공식 번역 API → 한국어 (성공 결과만 메모리 캐시)"""
     if not text:
         return text
-    # 너무 긴 제목은 잘라서 번역 (API 500자 이상 실패)
-    q = text[:480] if len(text) > 480 else text
-    for attempt in range(2):
+    if text in _translate_cache:
+        return _translate_cache[text]
+    q = text[:480]
+    for _ in range(2):
         try:
             r = _req.get(
                 "https://translate.googleapis.com/translate_a/single",
@@ -2424,17 +2427,17 @@ def _translate_ko(text: str) -> str:
                 parts = r.json()[0]
                 translated = "".join(p[0] for p in parts if p and p[0])
                 if translated:
-                    # 원본이 잘렸으면 말줄임 추가
-                    return translated + ("…" if len(text) > 480 else "")
-            elif r.status_code == 429 and attempt == 0:
-                import time; time.sleep(1)
+                    result = translated + ("…" if len(text) > 480 else "")
+                    _translate_cache[text] = result  # 성공만 캐시
+                    return result
+            break
         except Exception:
-            pass
-    return text  # 번역 실패 시 원문 반환
+            break
+    return text  # 실패 시 원문 (캐시 안 함 → 다음 렌더에서 재시도)
 
-# 인기 애니/만화 + 신작/시즌 키워드 (필터링용)
+# 탑100 인기 애니/만화 키워드 (필터링용)
 _ANIME_POPULAR_KW: list[str] = [
-    # 주요 시리즈
+    # ── 장기 인기 시리즈 ──
     "one piece", "ワンピース",
     "hunter x hunter", "hxh", "ハンターxハンター",
     "jujutsu kaisen", "呪術廻戦",
@@ -2459,16 +2462,63 @@ _ANIME_POPULAR_KW: list[str] = [
     "mob psycho",
     "dr. stone",
     "made in abyss",
-    "mushishi",
     "sword art online",
     "konosuba",
-    # 신작·시즌 키워드
-    "season 2", "season 3", "season 4", "2期", "3期",
-    "spring 2026", "summer 2026", "fall 2026", "winter 2026",
-    "2026 anime", "new anime", "新作", "新アニメ",
-    "premiere", "first look",
-    # 순위·트렌드
-    "ranking", "top anime", "most popular", "人気",
+    "steins;gate", "シュタインズゲート",
+    "death note", "デスノート",
+    "code geass",
+    "no game no life",
+    "shield hero", "盾の勇者",
+    "slime", "転生したらスライム",
+    "classroom of the elite",
+    "haikyuu", "ハイキュー",
+    "kuroko", "黒子のバスケ",
+    "jojo", "ジョジョ",
+    "tokyo ghoul",
+    "lycoris recoil",
+    "kaguya", "かぐや様",
+    "quintessential", "五等分",
+    "oshi no ko", "推しの子",
+    "dungeon meshi", "ダンジョン飯",
+    "apothecary", "薬屋のひとりごと",
+    "mashle",
+    "kaiju no.8", "怪獣8号",
+    "shangri-la frontier",
+    "mushoku tensei", "無職転生",
+    "eminence in shadow", "陰の実力者",
+    "tokyo revengers", "東京卍リベンジャーズ",
+    "oshi no ko",
+    "black butler", "黒執事",
+    "sword art online",
+    "rent-a-girlfriend", "彼女、お借りします",
+    "that time i got reincarnated",
+    "rising of the shield hero",
+    "irregular at magic high", "魔法科高校",
+    "accel world",
+    "rezero",
+    "tensura",
+    "jobless reincarnation",
+    "zom 100",
+    "hell's paradise",
+    "undead unluck",
+    "kaiju",
+    "wind breaker",
+    "sakamoto days",
+    "astro note",
+    "re:monster",
+    "yubisaki", "指先から",
+    "a sign of affection",
+    "dangers in my heart",
+    "kyokou suiri",
+    "summer time rendering",
+    "chainsaw",
+    "bocchi",
+    # ── 시즌/신작 ──
+    "season 2", "season 3", "season 4", "2期", "3期", "4期",
+    "new anime", "新作", "新アニメ",
+    "premiere", "first look", "first episode",
+    # ── 순위·트렌드 ──
+    "ranking", "top anime", "most popular", "人気", "ランキング",
 ]
 
 def _anime_relevant(title: str) -> bool:
