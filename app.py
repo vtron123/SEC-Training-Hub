@@ -1929,6 +1929,7 @@ def fetch_mlb_games(date_str: str) -> list:
                     at = g["teams"]["away"]
                     our_id = (ht["team"]["id"] if ht["team"]["id"] in _MLB_TEAMS
                               else at["team"]["id"])
+                    game_pk = pk
                     status = g["status"]["abstractGameState"]
                     ls = g.get("linescore") or {}
                     hp_obj = ht.get("probablePitcher") or {}
@@ -1936,6 +1937,7 @@ def fetch_mlb_games(date_str: str) -> list:
                     results.append({
                         "our_ko":          _MLB_TEAMS.get(our_id, ""),
                         "our_id":          our_id,
+                        "game_pk":         game_pk,
                         "home":            ht["team"]["name"],
                         "away":            at["team"]["name"],
                         "home_score":      ht.get("score", ""),
@@ -1997,6 +1999,66 @@ def _pitcher_label(pitcher_id: int, name: str) -> str:
     except Exception:
         pass
     return name_e
+
+@st.cache_data(ttl=300)
+def fetch_game_kr_stats(game_pk: int, team_id: int) -> str:
+    """당일 게임 박스스코어에서 한국인 선수 성적만 추출"""
+    players = _KR_PLAYERS.get(team_id, [])
+    if not players or not game_pk:
+        return ""
+    try:
+        url = f"https://statsapi.mlb.com/api/v1/game/{game_pk}/boxscore"
+        data = _req.get(url, timeout=8).json()
+        all_players: dict = {}
+        for side in ["home", "away"]:
+            for pdata in (data.get("teams", {}).get(side, {}).get("players", {}) or {}).values():
+                pid = pdata.get("person", {}).get("id")
+                if pid:
+                    all_players[pid] = pdata
+        lines = []
+        for p in players:
+            pdata = all_players.get(p["id"])
+            if not pdata:
+                continue
+            stats = pdata.get("stats", {})
+            parts = []
+            if p["type"] in ("hit", "both"):
+                bat = stats.get("batting") or {}
+                ab = bat.get("atBats", "")
+                h  = bat.get("hits", "")
+                hr = bat.get("homeRuns", 0)
+                rbi = bat.get("rbi", 0)
+                bb  = bat.get("baseOnBalls", 0)
+                if ab != "":
+                    s = f"{ab}타수 {h}안타"
+                    if hr:  s += f" {hr}홈런"
+                    if rbi: s += f" {rbi}타점"
+                    if bb:  s += f" {bb}볼넷"
+                    parts.append(s)
+            if p["type"] in ("pit", "both"):
+                pit = stats.get("pitching") or {}
+                ip  = pit.get("inningsPitched", "")
+                er  = pit.get("earnedRuns", "")
+                k   = pit.get("strikeOuts", "")
+                note = pit.get("note", "")
+                if ip:
+                    s = f"{ip}이닝 {er}자책 {k}K"
+                    if note: s += f" ({note})"
+                    parts.append(s)
+            if parts:
+                lines.append(
+                    '🇰🇷 <strong>' + html_lib.escape(p["name"]) + '</strong>  '
+                    + '  ·  '.join(parts)
+                )
+        if not lines:
+            return ""
+        return (
+            '<div style="border-top:1px solid #f3f4f6;margin-top:8px;padding-top:7px">'
+            + "".join('<div style="font-size:11px;color:#4b5563;line-height:1.8">' + l + '</div>' for l in lines)
+            + '</div>'
+        )
+    except Exception:
+        return ""
 
 def _kr_stats_html(team_id: int) -> str:
     """한국인 선수 시즌 성적 한 줄 HTML"""
@@ -2159,7 +2221,11 @@ with tab4:
 
                 away_e = html_lib.escape(_mlb_team_display(g["away"]))
                 home_e = html_lib.escape(_mlb_team_display(g["home"]))
-                kr_stats = _kr_stats_html(g["our_id"])
+                # 경기 중/종료시만 당일 성적 표시
+                kr_stats = (
+                    fetch_game_kr_stats(g["game_pk"], g["our_id"])
+                    if g["status"] in ("Live", "Final") else ""
+                )
                 st.markdown(
                     '<div style="background:white;border-radius:16px;padding:14px 18px;'
                     'box-shadow:0 2px 12px rgba(0,0,0,0.07);margin-bottom:10px;'
