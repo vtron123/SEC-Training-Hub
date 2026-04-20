@@ -1711,113 +1711,164 @@ def _kbo_info(en: str) -> tuple[str, str]:
 def _kl2_info(en: str) -> tuple[str, str]:
     return _KL2_TEAMS_DISPLAY.get(en, (en, "⚽"))
 
-_ESPN_UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+# ──────────────────────────────────────────────────────
+# KBO / K리그2 하드코딩 일정 (2026.04~05)
+# ──────────────────────────────────────────────────────
+_WEEKDAY_KO = ["월", "화", "수", "목", "금", "토", "일"]
 
-def _espn_parse_games(events: list, target_kw: list[str]) -> list:
-    results = []
-    for evt in events:
-        comps = (evt.get("competitions") or [{}])[0]
-        competitors = comps.get("competitors", [])
-        home_c = next((c for c in competitors if c.get("homeAway") == "home"), {})
-        away_c = next((c for c in competitors if c.get("homeAway") == "away"), {})
-        hn = home_c.get("team", {}).get("displayName", "")
-        an = away_c.get("team", {}).get("displayName", "")
-        if any(kw in hn or kw in an for kw in target_kw):
+_KBO_SCHEDULE: list[dict] = [
+    # ── 한화 이글스 (4/21~4/30) ──
+    {"date":"2026-04-21","time":"18:30","away":"한화 이글스","away_em":"🦅","home":"LG 트윈스",    "home_em":"🔴","venue":"잠실"},
+    {"date":"2026-04-22","time":"18:30","away":"한화 이글스","away_em":"🦅","home":"LG 트윈스",    "home_em":"🔴","venue":"잠실"},
+    {"date":"2026-04-23","time":"18:30","away":"한화 이글스","away_em":"🦅","home":"LG 트윈스",    "home_em":"🔴","venue":"잠실"},
+    {"date":"2026-04-24","time":"18:30","home":"한화 이글스","home_em":"🦅","away":"NC 다이노스",  "away_em":"🦕","venue":"대전"},
+    {"date":"2026-04-25","time":"17:00","home":"한화 이글스","home_em":"🦅","away":"NC 다이노스",  "away_em":"🦕","venue":"대전"},
+    {"date":"2026-04-26","time":"14:00","home":"한화 이글스","home_em":"🦅","away":"NC 다이노스",  "away_em":"🦕","venue":"대전"},
+    {"date":"2026-04-28","time":"18:30","home":"한화 이글스","home_em":"🦅","away":"SSG 랜더스",  "away_em":"🔴","venue":"대전"},
+    {"date":"2026-04-29","time":"18:30","home":"한화 이글스","home_em":"🦅","away":"SSG 랜더스",  "away_em":"🔴","venue":"대전"},
+    {"date":"2026-04-30","time":"18:30","home":"한화 이글스","home_em":"🦅","away":"SSG 랜더스",  "away_em":"🔴","venue":"대전"},
+    # ── 롯데 자이언츠 (4/21~5/09) ──
+    {"date":"2026-04-21","time":"18:30","home":"롯데 자이언츠","home_em":"🎸","away":"두산 베어스", "away_em":"🐻","venue":"사직"},
+    {"date":"2026-04-22","time":"18:30","home":"롯데 자이언츠","home_em":"🎸","away":"두산 베어스", "away_em":"🐻","venue":"사직"},
+    {"date":"2026-04-23","time":"18:30","home":"롯데 자이언츠","home_em":"🎸","away":"두산 베어스", "away_em":"🐻","venue":"사직"},
+    {"date":"2026-04-24","time":"18:30","away":"롯데 자이언츠","away_em":"🎸","home":"KIA 타이거즈","home_em":"🐯","venue":"광주"},
+    {"date":"2026-04-25","time":"17:00","away":"롯데 자이언츠","away_em":"🎸","home":"KIA 타이거즈","home_em":"🐯","venue":"광주"},
+    {"date":"2026-04-26","time":"14:00","away":"롯데 자이언츠","away_em":"🎸","home":"KIA 타이거즈","home_em":"🐯","venue":"광주"},
+    {"date":"2026-04-28","time":"18:30","home":"롯데 자이언츠","home_em":"🎸","away":"키움 히어로즈","away_em":"⚾","venue":"사직"},
+    {"date":"2026-04-29","time":"18:30","home":"롯데 자이언츠","home_em":"🎸","away":"키움 히어로즈","away_em":"⚾","venue":"사직"},
+    {"date":"2026-04-30","time":"18:30","home":"롯데 자이언츠","home_em":"🎸","away":"키움 히어로즈","away_em":"⚾","venue":"사직"},
+    {"date":"2026-05-05","time":"14:00","away":"롯데 자이언츠","away_em":"🎸","home":"KT 위즈",     "home_em":"⚫","venue":"수원"},
+    {"date":"2026-05-06","time":"18:30","away":"롯데 자이언츠","away_em":"🎸","home":"KT 위즈",     "home_em":"⚫","venue":"수원"},
+    {"date":"2026-05-07","time":"18:30","away":"롯데 자이언츠","away_em":"🎸","home":"KT 위즈",     "home_em":"⚫","venue":"수원"},
+    {"date":"2026-05-08","time":"18:30","home":"롯데 자이언츠","home_em":"🎸","away":"KIA 타이거즈","away_em":"🐯","venue":"사직"},
+    {"date":"2026-05-09","time":"18:30","home":"롯데 자이언츠","home_em":"🎸","away":"KIA 타이거즈","away_em":"🐯","venue":"사직"},
+]
+_KBO_TARGET = {"한화 이글스", "롯데 자이언츠"}
+
+_KL2_SCHEDULE: list[dict] = [
+    {"date":"2026-04-25","time":"TBD","home":"수원삼성","home_em":"💙","away":"부산아이파크","away_em":"⚽","venue":"수원월드컵"},
+    {"date":"2026-04-26","time":"TBD","home":"김포FC",  "home_em":"⚽","away":"수원FC",      "away_em":"🔵","venue":"김포"},
+    {"date":"2026-05-03","time":"TBD","home":"수원FC",  "home_em":"🔵","away":"수원삼성",    "away_em":"💙","venue":"수원월드컵"},
+]
+_KL2_TARGET = {"수원삼성", "수원FC"}
+
+def _get_sport_schedule(schedule: list, target: set, today: datetime.date) -> tuple[list, str]:
+    today_str = today.strftime("%Y-%m-%d")
+    today_games = [g for g in schedule if g["date"] == today_str
+                   and (g.get("home") in target or g.get("away") in target)]
+    if today_games:
+        return today_games, "오늘"
+    future = sorted(
+        [g for g in schedule if g["date"] > today_str
+         and (g.get("home") in target or g.get("away") in target)],
+        key=lambda x: x["date"]
+    )
+    if not future:
+        return [], ""
+    next_date = future[0]["date"]
+    try:
+        d = datetime.datetime.strptime(next_date, "%Y-%m-%d")
+        label = f"{d.month}/{d.day}({_WEEKDAY_KO[d.weekday()]}) 다음 경기"
+    except Exception:
+        label = next_date
+    return [g for g in future if g["date"] == next_date], label
+
+@st.cache_data(ttl=600)
+def fetch_kbo_live_today(date_str: str) -> list:
+    """Try ESPN KBO API for today's live/final scores"""
+    ds = date_str.replace("-", "")
+    try:
+        r = _req.get(
+            f"https://site.api.espn.com/apis/site/v2/sports/baseball/kbo/scoreboard?dates={ds}",
+            timeout=8, headers={"User-Agent": "Mozilla/5.0"}
+        )
+        results = []
+        for evt in r.json().get("events", []):
+            comps = (evt.get("competitions") or [{}])[0]
+            competitors = comps.get("competitors", [])
+            hc = next((c for c in competitors if c.get("homeAway") == "home"), {})
+            ac = next((c for c in competitors if c.get("homeAway") == "away"), {})
             state = evt.get("status", {}).get("type", {}).get("state", "pre")
             results.append({
-                "home": hn, "away": an,
-                "home_score": home_c.get("score", ""),
-                "away_score": away_c.get("score", ""),
+                "home_name": hc.get("team", {}).get("displayName", ""),
+                "away_name": ac.get("team", {}).get("displayName", ""),
+                "home_score": hc.get("score", ""),
+                "away_score": ac.get("score", ""),
                 "state": state,
-                "time_kst": _utc_to_kst(evt.get("date", "")),
-                "venue": (comps.get("venue") or {}).get("fullName", ""),
             })
-    return results
+        return results
+    except Exception:
+        return []
 
-@st.cache_data(ttl=600)
-def fetch_kbo_games_range(start_date: str, days: int = 14) -> tuple[list, str]:
-    """Return (games, date_str) for next Lotte/Hanwha game via ESPN KBO API"""
-    target_kw = ["Hanwha", "Lotte", "한화", "롯데"]
-    for d in range(days):
-        check = datetime.datetime.strptime(start_date, "%Y-%m-%d") + datetime.timedelta(days=d)
-        ds = check.strftime("%Y%m%d")
-        try:
-            r = _req.get(
-                f"https://site.api.espn.com/apis/site/v2/sports/baseball/kbo/scoreboard?dates={ds}",
-                timeout=8, headers=_ESPN_UA
-            )
-            games = _espn_parse_games(r.json().get("events", []), target_kw)
-            if games:
-                return games, check.strftime("%Y-%m-%d")
-        except Exception:
-            pass
-    return [], start_date
+@st.cache_data(ttl=900)
+def fetch_lineup_news(team_query: str) -> str:
+    """Fetch latest lineup news headline for a team"""
+    q = quote(team_query + " 선발라인업 오늘")
+    items = fetch_rss_items(
+        f"https://news.google.com/rss/search?q={q}&hl=ko&gl=KR&ceid=KR:ko", max_items=1
+    )
+    return items[0]["title"] if items else ""
 
-@st.cache_data(ttl=600)
-def fetch_kl2_games_range(start_date: str, days: int = 21) -> tuple[list, str]:
-    """Return (games, date_str) for next Suwon Samsung/FC game via ESPN K리그2 API"""
-    target_kw = ["Suwon", "수원"]
-    for d in range(days):
-        check = datetime.datetime.strptime(start_date, "%Y-%m-%d") + datetime.timedelta(days=d)
-        ds = check.strftime("%Y%m%d")
-        try:
-            r = _req.get(
-                f"https://site.api.espn.com/apis/site/v2/sports/soccer/kor.2/scoreboard?dates={ds}",
-                timeout=8, headers=_ESPN_UA
-            )
-            games = _espn_parse_games(r.json().get("events", []), target_kw)
-            if games:
-                return games, check.strftime("%Y-%m-%d")
-        except Exception:
-            pass
-    return [], start_date
+def _sport_card(game: dict, is_today: bool, live_data: list, accent: str) -> str:
+    home_e  = html_lib.escape(game["home"])
+    away_e  = html_lib.escape(game["away"])
+    home_em = game.get("home_em", "⚾")
+    away_em = game.get("away_em", "⚾")
+    venue_e = html_lib.escape(game.get("venue", ""))
+    time_s  = game.get("time", "TBD")
 
-def _sport_score_card(home_ko: str, away_ko: str, home_em: str, away_em: str,
-                      home_score, away_score, state: str,
-                      date_str: str, time_kst: str, venue: str, accent: str) -> str:
-    """Naver-style score card with team emoji + name"""
-    if state in ("in", "post") and home_score != "":
-        s_badge = "종료" if state == "post" else "LIVE ●"
-        s_color = "#6b7280" if state == "post" else "#dc2626"
+    # Try to match live score
+    live_score = None
+    if is_today and live_data:
+        for ld in live_data:
+            if (game["home"][:2] in ld["home_name"] or ld["home_name"][:3] in game["home"]
+                    or game["away"][:2] in ld["away_name"] or ld["away_name"][:3] in game["away"]):
+                if ld["state"] in ("in", "post") and ld["home_score"] != "":
+                    live_score = ld
+                break
+
+    if live_score:
+        s_badge = "종료" if live_score["state"] == "post" else "LIVE ●"
+        s_color = "#6b7280" if live_score["state"] == "post" else "#dc2626"
         match_html = (
-            '<div style="display:flex;align-items:center;justify-content:center;gap:10px;margin:8px 0">'
+            '<div style="display:flex;align-items:center;justify-content:space-between;margin:8px 0">'
             '<div style="text-align:center;flex:1">'
             '<div style="font-size:18px">' + away_em + '</div>'
-            '<div style="font-size:12px;font-weight:700;color:#374151">' + html_lib.escape(away_ko) + '</div>'
+            '<div style="font-size:12px;font-weight:700;color:#374151">' + away_e + '</div>'
             '</div>'
-            '<div style="font-size:22px;font-weight:900;color:#374151;min-width:70px;text-align:center">'
-            + str(away_score) + ' : ' + str(home_score) + '</div>'
+            '<div style="font-size:24px;font-weight:900;color:#374151;min-width:70px;text-align:center">'
+            + str(live_score["away_score"]) + ' : ' + str(live_score["home_score"]) + '</div>'
             '<div style="text-align:center;flex:1">'
             '<div style="font-size:18px">' + home_em + '</div>'
-            '<div style="font-size:12px;font-weight:700;color:#374151">' + html_lib.escape(home_ko) + '</div>'
+            '<div style="font-size:12px;font-weight:700;color:#374151">' + home_e + '</div>'
             '</div>'
             '</div>'
         )
     else:
-        s_badge = time_kst or "예정"
-        s_color = accent
+        s_badge = ("오늘 " + time_s) if is_today else time_s
+        s_color = "#dc2626" if is_today else accent
         match_html = (
-            '<div style="display:flex;align-items:center;justify-content:center;gap:10px;margin:8px 0">'
+            '<div style="display:flex;align-items:center;justify-content:space-between;margin:8px 0">'
             '<div style="text-align:center;flex:1">'
             '<div style="font-size:18px">' + away_em + '</div>'
-            '<div style="font-size:12px;font-weight:700;color:#374151">' + html_lib.escape(away_ko) + '</div>'
+            '<div style="font-size:12px;font-weight:700;color:#374151">' + away_e + '</div>'
+            '<div style="font-size:10px;color:#9ca3af">원정</div>'
             '</div>'
-            '<div style="font-size:14px;color:#9ca3af;min-width:30px;text-align:center">vs</div>'
+            '<div style="font-size:13px;color:#d1d5db;font-weight:700;min-width:30px;text-align:center">vs</div>'
             '<div style="text-align:center;flex:1">'
             '<div style="font-size:18px">' + home_em + '</div>'
-            '<div style="font-size:12px;font-weight:700;color:#374151">' + html_lib.escape(home_ko) + '</div>'
+            '<div style="font-size:12px;font-weight:700;color:#374151">' + home_e + '</div>'
+            '<div style="font-size:10px;color:#9ca3af">홈</div>'
             '</div>'
             '</div>'
         )
 
-    date_e  = html_lib.escape(date_str)
-    venue_e = (' · 📍' + html_lib.escape(venue)) if venue else ""
     return (
         '<div style="background:white;border-radius:14px;padding:12px 16px;'
         'box-shadow:0 2px 10px rgba(0,0,0,0.07);margin-bottom:9px;'
         'border-left:4px solid ' + accent + '">'
         '<div style="display:flex;justify-content:space-between;align-items:center">'
-        '<span style="font-size:10px;color:#9ca3af">' + date_e + venue_e + '</span>'
+        '<span style="font-size:10px;color:#9ca3af">📍 ' + venue_e + '</span>'
         '<span style="background:' + s_color + ';color:white;font-size:10px;'
         'padding:2px 9px;border-radius:10px;font-weight:700">' + html_lib.escape(s_badge) + '</span>'
         '</div>'
@@ -1900,6 +1951,36 @@ def fetch_rss_items(url: str, max_items: int = 7) -> list:
     except Exception:
         return []
 
+@st.cache_data(ttl=900)
+def _fetch_fast_rss(url: str, max_items: int = 7) -> list:
+    """RSS 빠른 갱신 버전 (TTL 15분) — 애니/만화 전용"""
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        r = _req.get(url, timeout=12, headers=headers)
+        r.raise_for_status()
+        try:
+            root = _ET.fromstring(r.content)
+        except _ET.ParseError:
+            txt = r.content.decode("utf-8", errors="replace")
+            txt = re.sub(r"<\?xml[^>]+\?>", "", txt, count=1)
+            root = _ET.fromstring(txt.encode("utf-8"))
+        items = []
+        for item in root.findall(".//item")[:max_items]:
+            def _gt(tag):
+                node = item.find(tag)
+                if node is None: return ""
+                t = node.text or ""
+                t = re.sub(r"<!\[CDATA\[(.*?)\]\]>", r"\1", t, flags=re.DOTALL)
+                return re.sub(r"<[^>]+>", "", t).strip()
+            title = _gt("title")
+            link  = _gt("link") or ""
+            pub   = _gt("pubDate")[:16]
+            if title:
+                items.append({"title": title, "link": link, "date": pub})
+        return items
+    except Exception:
+        return []
+
 def _news_cards(items, empty_msg="소식을 불러올 수 없어요."):
     if not items:
         st.markdown(f'<div class="sec-alert">{empty_msg}</div>', unsafe_allow_html=True)
@@ -1972,49 +2053,45 @@ with tab4:
                     unsafe_allow_html=True
                 )
 
-        # ── KBO 다음 경기 ──
-        st.markdown('<div class="sec-label" style="margin-top:14px">⚾ KBO (한화·롯데) 다음 경기</div>', unsafe_allow_html=True)
-        kbo_games, kbo_date = fetch_kbo_games_range(today_str4)
+        # ── KBO 경기 ──
+        kbo_games, kbo_label = _get_sport_schedule(_KBO_SCHEDULE, _KBO_TARGET, _today_kst())
+        is_kbo_today = kbo_label == "오늘"
+        kbo_live = fetch_kbo_live_today(today_str4) if is_kbo_today else []
+        label_color = "#dc2626" if is_kbo_today else "#7c3aed"
+        st.markdown(
+            '<div class="sec-label" style="margin-top:14px">⚾ KBO (한화·롯데) — '
+            '<span style="color:' + label_color + ';font-weight:700">' + html_lib.escape(kbo_label) + '</span></div>',
+            unsafe_allow_html=True
+        )
         if kbo_games:
-            for kg in kbo_games[:3]:
-                hko, hem = _kbo_info(kg["home"])
-                ako, aem = _kbo_info(kg["away"])
-                st.markdown(
-                    _sport_score_card(hko, ako, hem, aem,
-                                      kg["home_score"], kg["away_score"], kg["state"],
-                                      kbo_date, kg["time_kst"], kg.get("venue", ""), "#e65c00"),
-                    unsafe_allow_html=True
-                )
+            for kg in kbo_games:
+                st.markdown(_sport_card(kg, is_kbo_today, kbo_live, "#e65c00"), unsafe_allow_html=True)
+            if is_kbo_today:
+                lineup_hint = fetch_lineup_news("한화이글스 OR 롯데자이언츠")
+                if lineup_hint:
+                    st.markdown(
+                        '<div style="font-size:11px;color:#6b7280;background:#f9fafb;'
+                        'border-radius:8px;padding:8px 12px;margin-top:2px">'
+                        '📋 ' + html_lib.escape(lineup_hint) + '</div>',
+                        unsafe_allow_html=True
+                    )
         else:
-            st.markdown(
-                '<div class="sec-alert" style="font-size:12px">'
-                '일정을 불러올 수 없어요. '
-                '<a href="https://www.koreabaseball.com/Schedule/Schedule.aspx" target="_blank" '
-                'style="color:#7c3aed;font-weight:700">→ KBO 공식 일정</a>'
-                '</div>', unsafe_allow_html=True
-            )
+            st.markdown('<div class="sec-alert">5월 이후 일정은 추후 업데이트 예정</div>', unsafe_allow_html=True)
 
-        # ── K리그2 다음 경기 ──
-        st.markdown('<div class="sec-label" style="margin-top:14px">⚽ K리그2 (수원삼성·수원FC) 다음 경기</div>', unsafe_allow_html=True)
-        kl2_games, kl2_date = fetch_kl2_games_range(today_str4)
+        # ── K리그2 경기 ──
+        kl2_games, kl2_label = _get_sport_schedule(_KL2_SCHEDULE, _KL2_TARGET, _today_kst())
+        is_kl2_today = kl2_label == "오늘"
+        label_color2 = "#dc2626" if is_kl2_today else "#7c3aed"
+        st.markdown(
+            '<div class="sec-label" style="margin-top:14px">⚽ K리그2 (수원삼성·수원FC) — '
+            '<span style="color:' + label_color2 + ';font-weight:700">' + html_lib.escape(kl2_label) + '</span></div>',
+            unsafe_allow_html=True
+        )
         if kl2_games:
-            for kg in kl2_games[:3]:
-                hko, hem = _kl2_info(kg["home"])
-                ako, aem = _kl2_info(kg["away"])
-                st.markdown(
-                    _sport_score_card(hko, ako, hem, aem,
-                                      kg["home_score"], kg["away_score"], kg["state"],
-                                      kl2_date, kg["time_kst"], kg.get("venue", ""), "#1a7f4b"),
-                    unsafe_allow_html=True
-                )
+            for kg in kl2_games:
+                st.markdown(_sport_card(kg, is_kl2_today, [], "#1a7f4b"), unsafe_allow_html=True)
         else:
-            st.markdown(
-                '<div class="sec-alert" style="font-size:12px">'
-                '일정 정보를 가져오는 중... '
-                '<a href="https://www.kleague.com/schedule/index.do" target="_blank" '
-                'style="color:#7c3aed;font-weight:700">→ K리그 공식 일정</a>'
-                '</div>', unsafe_allow_html=True
-            )
+            st.markdown('<div class="sec-alert">5월 이후 일정은 추후 업데이트 예정</div>', unsafe_allow_html=True)
 
     # ── 오른쪽: 소식 ──
     with col4r:
@@ -2036,12 +2113,12 @@ with tab4:
             _news_cards(soccer_news, "축구 소식을 불러올 수 없어요.")
 
         with ntab3:
-            q_anime_ko = quote("애니메이션 신작 OR 만화 신작 OR 애니 추천 OR 만화책")
-            q_manga_ko = quote("일본 만화 OR 웹툰 신작 OR 애니 2026 OR 극장판")
-            anime_news = fetch_rss_items(
-                f"https://news.google.com/rss/search?q={q_anime_ko}&hl=ko&gl=KR&ceid=KR:ko", max_items=6
+            q_anime = quote("일본 애니메이션 신작 OR 애니 방영 OR 극장판 OR 애니 2026")
+            q_manga = quote("일본 만화 신간 OR 만화책 신작 OR 점프 OR 소년점프 OR 원피스 OR 나루토 OR 만화 완결")
+            anime_news = _fetch_fast_rss(
+                f"https://news.google.com/rss/search?q={q_anime}&hl=ko&gl=KR&ceid=KR:ko", max_items=6
             )
-            manga_news = fetch_rss_items(
-                f"https://news.google.com/rss/search?q={q_manga_ko}&hl=ko&gl=KR&ceid=KR:ko", max_items=5
+            manga_news = _fetch_fast_rss(
+                f"https://news.google.com/rss/search?q={q_manga}&hl=ko&gl=KR&ceid=KR:ko", max_items=5
             )
             _news_cards(anime_news + manga_news, "애니/만화 소식을 불러올 수 없어요.")
