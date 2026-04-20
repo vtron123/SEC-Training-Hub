@@ -770,7 +770,7 @@ def update_record(sheet_row: int, date_str: str, machine: str, category: str, co
 
 def record_data(machine: str, count: int, memo: str, category: str = "데이터 기록"):
     sheet = get_sheet()
-    today = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    today = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9))).strftime("%Y-%m-%d %H:%M")
     all_dates = sheet.col_values(1)
     next_row = len(all_dates) + 1
     sheet.insert_row([today, machine, category, str(count), memo], index=next_row)
