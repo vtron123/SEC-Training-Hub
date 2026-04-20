@@ -14,6 +14,8 @@ import requests as _req
 import xml.etree.ElementTree as _ET
 from urllib.parse import quote
 from PIL import Image
+import numpy as np
+from collections import deque
 
 # ──────────────────────────────────────────────
 # 페이지 설정 (반드시 최상단)
@@ -533,6 +535,31 @@ def get_penguin_base64() -> str | None:
                 pass
     return None
 
+def _remove_white_bg(img: Image.Image, tol: int = 30) -> Image.Image:
+    """BFS flood-fill로 이미지 가장자리 흰 배경을 투명하게 제거"""
+    arr = np.array(img.convert("RGBA"), dtype=np.uint8)
+    H, W = arr.shape[:2]
+    bg = arr[0, 0, :3].copy()
+    visited = np.zeros((H, W), bool)
+    mask = np.zeros((H, W), bool)
+    q: deque = deque()
+    for r, c in [(0,0),(0,W-1),(H-1,0),(H-1,W-1),
+                 (0,W//2),(H-1,W//2),(H//2,0),(H//2,W-1)]:
+        if not visited[r, c]:
+            visited[r, c] = True
+            q.append((r, c))
+    while q:
+        r, c = q.popleft()
+        if np.all(np.abs(arr[r, c, :3].astype(int) - bg.astype(int)) <= tol):
+            mask[r, c] = True
+            for dr, dc in [(-1,0),(1,0),(0,-1),(0,1)]:
+                nr, nc = r + dr, c + dc
+                if 0 <= nr < H and 0 <= nc < W and not visited[nr, nc]:
+                    visited[nr, nc] = True
+                    q.append((nr, nc))
+    arr[mask, 3] = 0
+    return Image.fromarray(arr)
+
 @st.cache_data
 def get_babynuri_base64() -> str | None:
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -540,7 +567,7 @@ def get_babynuri_base64() -> str | None:
         path = os.path.join(base_dir, name)
         if os.path.exists(path):
             try:
-                img = Image.open(path).convert("RGBA")
+                img = _remove_white_bg(Image.open(path))
                 img = img.resize((200, 200), Image.LANCZOS)
                 buf = io.BytesIO()
                 img.save(buf, format="PNG")
