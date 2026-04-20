@@ -1956,11 +1956,12 @@ def fetch_mlb_games(date_str: str) -> list:
         return []
 
 # ── 한국인 선수 등록 (팀ID → 선수 목록) ──
+# en: 박스스코어 이름 검색용 (ID가 없거나 틀릴 때 fallback)
 _KR_PLAYERS: dict[int, list[dict]] = {
-    137: [{"id": 680776, "name": "이정후",  "type": "hit"}],           # SF 자이언츠
-    119: [{"id": 660271, "name": "오타니",  "type": "both"},
-          {"id": 683734, "name": "김혜성",  "type": "hit"}],           # 다저스
-    144: [{"id": 673490, "name": "김하성",  "type": "hit"}],           # 애틀란타
+    137: [{"id": 680776, "name": "이정후", "type": "hit",  "en": "Lee"}],
+    119: [{"id": 660271, "name": "오타니", "type": "both", "en": "Ohtani"},
+          {"id": 0,      "name": "김혜성", "type": "hit",  "en": "Kim"}],   # ID 0 → 이름 검색
+    144: [{"id": 673490, "name": "김하성", "type": "hit",  "en": "Kim"}],
 }
 
 @st.cache_data(ttl=3600)
@@ -2000,56 +2001,100 @@ def _pitcher_label(pitcher_id: int, name: str) -> str:
         pass
     return name_e
 
+@st.cache_data(ttl=3600)
+def _fetch_il_ids(team_id: int) -> set:
+    """팀 IL(부상자 명단) 선수 ID 반환"""
+    try:
+        url = (f"https://statsapi.mlb.com/api/v1/teams/{team_id}/roster"
+               f"?rosterType=injuries&season=2026&hydrate=person")
+        data = _req.get(url, timeout=8).json()
+        return {r.get("person", {}).get("id") for r in (data.get("roster") or [])}
+    except Exception:
+        return set()
+
 @st.cache_data(ttl=300)
 def fetch_game_kr_stats(game_pk: int, team_id: int) -> str:
-    """당일 게임 박스스코어에서 한국인 선수 성적만 추출"""
+    """당일 게임 박스스코어 → 한국인 선수 성적 (0안타도 표시, 부상 감지)"""
     players = _KR_PLAYERS.get(team_id, [])
     if not players or not game_pk:
         return ""
     try:
         url = f"https://statsapi.mlb.com/api/v1/game/{game_pk}/boxscore"
         data = _req.get(url, timeout=8).json()
-        all_players: dict = {}
+
+        # ID → pdata 맵 + 이름 → pdata 맵 (fallback)
+        all_by_id: dict   = {}
+        all_by_name: dict = {}
         for side in ["home", "away"]:
             for pdata in (data.get("teams", {}).get(side, {}).get("players", {}) or {}).values():
-                pid = pdata.get("person", {}).get("id")
+                person = pdata.get("person", {})
+                pid    = person.get("id")
+                pname  = person.get("fullName", "")
                 if pid:
-                    all_players[pid] = pdata
-        lines = []
+                    all_by_id[pid]   = pdata
+                if pname:
+                    all_by_name[pname] = pdata
+
+        il_ids = _fetch_il_ids(team_id)
+        lines  = []
+
         for p in players:
-            pdata = all_players.get(p["id"])
+            # ID 0이면 이름으로 검색 (김혜성처럼 ID 미확정)
+            if p["id"]:
+                pdata = all_by_id.get(p["id"])
+            else:
+                en = p.get("en", "")
+                pdata = next(
+                    (v for k, v in all_by_name.items() if en and en.lower() in k.lower()),
+                    None
+                )
+                # 찾았으면 ID 업데이트 (캐시 내에서만)
+                if pdata:
+                    p["id"] = pdata.get("person", {}).get("id", 0)
+
+            # 박스스코어에 없으면 → 부상 or 결장
             if not pdata:
+                tag = "🏥 부상(IL)" if (p["id"] and p["id"] in il_ids) else "결장"
+                lines.append('🇰🇷 <strong>' + html_lib.escape(p["name"]) + '</strong>  ' + tag)
                 continue
-            stats = pdata.get("stats", {})
-            parts = []
+
+            stats  = pdata.get("stats", {})
+            seq    = pdata.get("gameStatus", {})
+            parts  = []
+
             if p["type"] in ("hit", "both"):
                 bat = stats.get("batting") or {}
-                ab = bat.get("atBats", "")
-                h  = bat.get("hits", "")
-                hr = bat.get("homeRuns", 0)
+                # atBats가 없어도(None) 무조건 표시
+                ab  = bat.get("atBats", 0)
+                h   = bat.get("hits", 0)
+                hr  = bat.get("homeRuns", 0)
                 rbi = bat.get("rbi", 0)
                 bb  = bat.get("baseOnBalls", 0)
-                if ab != "":
-                    s = f"{ab}타수 {h}안타"
-                    if hr:  s += f" {hr}홈런"
-                    if rbi: s += f" {rbi}타점"
-                    if bb:  s += f" {bb}볼넷"
-                    parts.append(s)
+                so  = bat.get("strikeOuts", 0)
+                s   = f"{ab}타수 {h}안타"
+                if hr:  s += f" {hr}홈런"
+                if rbi: s += f" {rbi}타점"
+                if bb:  s += f" {bb}볼넷"
+                if so:  s += f" {so}삼진"
+                parts.append(s)
+
             if p["type"] in ("pit", "both"):
-                pit = stats.get("pitching") or {}
-                ip  = pit.get("inningsPitched", "")
-                er  = pit.get("earnedRuns", "")
-                k   = pit.get("strikeOuts", "")
+                pit  = stats.get("pitching") or {}
+                ip   = pit.get("inningsPitched", "")
+                er   = pit.get("earnedRuns", 0)
+                k    = pit.get("strikeOuts", 0)
                 note = pit.get("note", "")
                 if ip:
                     s = f"{ip}이닝 {er}자책 {k}K"
                     if note: s += f" ({note})"
                     parts.append(s)
+
             if parts:
                 lines.append(
                     '🇰🇷 <strong>' + html_lib.escape(p["name"]) + '</strong>  '
                     + '  ·  '.join(parts)
                 )
+
         if not lines:
             return ""
         return (
