@@ -886,6 +886,21 @@ if "search_history" not in st.session_state:
 if "editing_schedule" not in st.session_state:
     st.session_state.editing_schedule = None  # {"row": int, "날짜": str, "제목": str, "메모": str}
 
+# 장비 테이블 클릭 → ?machine=NAME 파라미터 처리
+_qp_machine = st.query_params.get("machine", "")
+if _qp_machine:
+    try:
+        _df_qp = load_all_data()
+        _res_qp = _df_qp[_df_qp["장비명"] == _qp_machine]
+        st.session_state.search_result = _res_qp
+        st.session_state.search_label = _qp_machine
+        if _qp_machine not in st.session_state.search_history:
+            st.session_state.search_history.insert(0, _qp_machine)
+            st.session_state.search_history = st.session_state.search_history[:5]
+    except Exception:
+        pass
+    st.query_params.clear()  # 새로고침 시 반복 방지
+
 # ──────────────────────────────────────────────
 # 탭 레이아웃
 # ──────────────────────────────────────────────
@@ -1093,11 +1108,16 @@ with tab1:
                   td {{ padding:9px 14px; border-bottom:1px solid #f9fafb;
                         font-size:13px; }}
                   tr:last-child td {{ border-bottom:none; }}
+                  tr {{ transition: background 0.12s; }}
                   tr:hover td {{ background:#faf5ff; }}
+                  tr:hover .badge-purple {{ background:#e9d5ff; }}
+                  tr:active td {{ background:#f3e8ff; }}
                   .badge-purple {{ background:#f3e8ff; color:#7c3aed; font-size:12px;
-                                   font-weight:600; padding:3px 10px; border-radius:20px; }}
+                                   font-weight:600; padding:3px 10px; border-radius:20px;
+                                   transition: background 0.12s; }}
                   .badge-blue   {{ background:#eff6ff; color:#2563eb; font-size:11px;
                                    font-weight:500; padding:3px 8px; border-radius:20px; }}
+                  tr td:first-child::after {{ content:'  ›'; color:#c4b5fd; font-size:14px; }}
                 </style>
                 <table>
                   <thead><tr><th>장비명</th><th>총 학습장수</th><th>기록 건수</th></tr></thead>
