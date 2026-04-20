@@ -2406,6 +2406,25 @@ def _merge_rss(urls: list[str], max_per: int = 8, limit: int = 10,
                 all_items.append(it)
     return sorted(all_items, key=lambda x: x.get("sort_ts", 0), reverse=True)[:limit]
 
+@st.cache_data(ttl=86400)
+def _translate_ko(text: str) -> str:
+    """Google 비공식 번역 API → 한국어 (TTL 24시간 캐시)"""
+    if not text:
+        return text
+    try:
+        r = _req.get(
+            "https://translate.googleapis.com/translate_a/single",
+            params={"client": "gtx", "sl": "auto", "tl": "ko", "dt": "t", "q": text},
+            timeout=8,
+        )
+        if r.status_code == 200:
+            parts = r.json()[0]
+            translated = "".join(p[0] for p in parts if p and p[0])
+            return translated if translated else text
+    except Exception:
+        pass
+    return text
+
 def _news_cards(items, empty_msg="소식을 불러올 수 없어요."):
     if not items:
         st.markdown(f'<div class="sec-alert">{empty_msg}</div>', unsafe_allow_html=True)
@@ -2561,10 +2580,15 @@ with tab4:
             _news_cards(soccer_news, "축구 소식을 불러올 수 없어요.")
 
         with ntab3:
-            q_series = quote("헌터x헌터 OR 원피스 OR 주술회전 OR 귀멸의칼날 OR 나의히어로아카데미아 OR 진격의거인 OR 드래곤볼")
-            q_new = quote("2026 애니메이션 신작 OR 신규 방영 OR 극장판 개봉 OR 소년점프 신작 OR 만화 완결")
-            anime_news = _merge_rss([
-                f"https://news.google.com/rss/search?q={q_series}&hl=ko&gl=KR&ceid=KR:ko",
-                f"https://news.google.com/rss/search?q={q_new}&hl=ko&gl=KR&ceid=KR:ko",
-            ], max_per=6, limit=10, fast=True)
-            _news_cards(anime_news, "애니/만화 소식을 불러올 수 없어요.")
+            # 전문 애니/만화 뉴스: ANN(영문) + MAL(영문) + Comic Natalie(일문) 합산
+            raw_anime = _merge_rss([
+                "https://www.animenewsnetwork.com/all/rss.xml",
+                "https://myanimelist.net/rss/news.xml",
+                "https://natalie.mu/comic/feed/news",
+            ], max_per=7, limit=15, fast=True)
+            # 제목 한국어 번역 (24시간 캐시)
+            translated_anime = [
+                {**it, "title": _translate_ko(it["title"])}
+                for it in raw_anime
+            ]
+            _news_cards(translated_anime, "애니/만화 소식을 불러올 수 없어요.")
