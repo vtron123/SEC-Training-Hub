@@ -942,8 +942,8 @@ with tab1:
                 )
                 if st.button("자동 파싱", key="btn_parse", use_container_width=True):
                     if rec_natural:
-                        d_machine, d_count, _ = parse_natural_input(rec_natural)
-                        st.info(f"감지: **{d_machine}** / **{d_count:,}장**")
+                        d_machine, d_count, d_memo = parse_natural_input(rec_natural)
+                        st.info(f"감지: **{d_machine}** / **{d_count:,}장**\n\n메모: {d_memo}")
 
             if st.button("⚡ 기록 저장", key="btn_record", type="primary", use_container_width=True):
                 if rec_natural and rec_natural.strip():
