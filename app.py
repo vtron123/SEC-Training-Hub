@@ -74,7 +74,7 @@ html, body, [data-testid="stAppViewContainer"] {
 
 [data-testid="stHeader"] { background: transparent !important; }
 [data-testid="stToolbar"] { display: none !important; }
-.main .block-container { padding: 0 !important; max-width: 100% !important; }
+.main .block-container { padding: 1rem 10% !important; max-width: 100% !important; }
 section[data-testid="stSidebar"] { display: none !important; }
 
 /* ── 헤더 바 ── */
