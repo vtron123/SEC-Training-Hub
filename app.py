@@ -665,18 +665,23 @@ def load_pc_assignments():
     """PC 자리 배정 이력 전체 로드 (날짜 / 자리번호 / 장비명 / 담당자 / 메모)"""
     sheet = get_pc_sheet()
     if sheet is None:
-        return pd.DataFrame(columns=["날짜", "자리번호", "장비명", "담당자", "메모"])
+        return pd.DataFrame(columns=["날짜", "자리번호", "장비명", "담당자", "메모", "_row"])
     rows = _gsheet_retry(sheet.get_all_values)
     if not rows:
-        return pd.DataFrame(columns=["날짜", "자리번호", "장비명", "담당자", "메모"])
+        return pd.DataFrame(columns=["날짜", "자리번호", "장비명", "담당자", "메모", "_row"])
     # 헤더 없이 저장된 경우도 대응
+    header_offset = 0
     if rows[0][0] == "날짜":
+        header_offset = 1
         rows = rows[1:]
     records = []
-    for row in rows:
+    for i, row in enumerate(rows):
         while len(row) < 5:
             row.append("")
-        records.append({"날짜": row[0], "자리번호": row[1], "장비명": row[2], "담당자": row[3], "메모": row[4]})
+        records.append({
+            "날짜": row[0], "자리번호": row[1], "장비명": row[2], "담당자": row[3], "메모": row[4],
+            "_row": i + 1 + header_offset,  # 실제 시트 행 번호 (1-based)
+        })
     return pd.DataFrame(records)
 
 # ──────────────────────────────────────────────
@@ -766,12 +771,21 @@ def save_pc_assignment(date_str: str, pc_id: str, machine: str, person: str = ""
     load_pc_assignments.clear()
     return True
 
-def delete_pc_assignment(row_index: int):
-    """특정 행 삭제 (1-based, 헤더 포함)"""
+def delete_pc_assignment(sheet_row: int):
+    """특정 행 삭제 (sheet_row: 실제 시트 행 번호)"""
     sheet = get_pc_sheet()
     if sheet is None:
         return False
-    sheet.delete_rows(row_index + 1)  # +1 for header
+    _gsheet_retry(lambda: sheet.delete_rows(sheet_row))
+    load_pc_assignments.clear()
+    return True
+
+def update_pc_assignment(sheet_row: int, date_str: str, pc_id: str, machine: str, person: str = "", memo: str = ""):
+    """특정 행 수정 (sheet_row: 실제 시트 행 번호)"""
+    sheet = get_pc_sheet()
+    if sheet is None:
+        return False
+    _gsheet_retry(lambda: sheet.update(f"A{sheet_row}:E{sheet_row}", [[date_str, pc_id, machine, person, memo]]))
     load_pc_assignments.clear()
     return True
 
@@ -1274,15 +1288,16 @@ with tab2:
             load_pc_assignments.clear()
             pc_df = load_pc_assignments()
         except Exception:
-            pc_df = pd.DataFrame(columns=["날짜", "자리번호", "장비명", "담당자", "메모"])
+            pc_df = pd.DataFrame(columns=["날짜", "자리번호", "장비명", "담당자", "메모", "_row"])
 
         # 필터 적용
         filtered_df = pc_df.copy()
 
         if btn_filter and filter_keyword.strip():
             kw = filter_keyword.strip()
+            _search_cols = [c for c in pc_df.columns if c != "_row"]
             mask = pc_df.apply(
-                lambda row: kw.lower() in " ".join(row.values.astype(str)).lower(), axis=1
+                lambda row: kw.lower() in " ".join(row[_search_cols].values.astype(str)).lower(), axis=1
             )
             filtered_df = pc_df[mask]
 
@@ -1316,51 +1331,96 @@ with tab2:
             </div>
             """, unsafe_allow_html=True)
 
-            # ── 날짜별 타임라인 뷰 (사진1 스타일) ──
+            # ── 날짜별 타임라인 뷰 (수정/삭제 가능) ──
             st.markdown('<div class="sec-label">📅 날짜별 배정 이력</div>', unsafe_allow_html=True)
 
             display_df = filtered_df if (btn_filter and not filtered_df.empty) else pc_df
-
-            # 날짜 기준으로 그룹핑
             dates_sorted = sorted(display_df["날짜"].unique(), reverse=True)
 
-            timeline_html = '<div style="display:flex;flex-direction:column;gap:14px">'
+            if "editing_pc_row" not in st.session_state:
+                st.session_state["editing_pc_row"] = None
 
             for date_val in dates_sorted:
-                day_rows = display_df[display_df["날짜"] == date_val].reset_index(drop=True)
-
-                # 날짜 헤더
+                day_rows = display_df[display_df["날짜"] == date_val]
                 safe_date = html_lib.escape(str(date_val))
-                timeline_html += (
-                    '<div style="background:white;border-radius:18px;padding:16px 20px;box-shadow:0 2px 10px rgba(0,0,0,0.06);border-left:4px solid #a855f7">'
-                    '<div style="font-size:13px;font-weight:700;color:#7c3aed;margin-bottom:10px;display:flex;align-items:center;gap:8px">'
-                    f'<span style="background:linear-gradient(135deg,#ede9fe,#ddd6fe);padding:3px 12px;border-radius:20px;font-size:12px">[{safe_date} &#8212; 트레이닝 자리]</span>'
-                    '</div>'
-                    '<div style="display:flex;flex-direction:column;gap:6px">'
+                st.markdown(
+                    f'<div style="background:white;border-radius:14px;padding:10px 18px 6px 18px;'
+                    f'box-shadow:0 2px 10px rgba(0,0,0,0.06);border-left:4px solid #a855f7;margin-top:12px">'
+                    f'<span style="font-size:12px;font-weight:700;color:#7c3aed;'
+                    f'background:linear-gradient(135deg,#ede9fe,#ddd6fe);padding:3px 12px;border-radius:20px">'
+                    f'[{safe_date} &#8212; 트레이닝 자리]</span></div>',
+                    unsafe_allow_html=True
                 )
 
-                for i, row in day_rows.iterrows():
-                    machine = html_lib.escape(str(row["장비명"]))
-                    person = html_lib.escape(str(row["담당자"]))
-                    memo = html_lib.escape(str(row["메모"]))
-                    memo_chip = (
-                        f'<span style="font-size:11px;font-weight:600;color:#6d28d9;background:linear-gradient(135deg,#ede9fe,#ddd6fe);'
-                        f'padding:3px 10px;border-radius:20px;white-space:nowrap">{memo}</span>'
-                    ) if memo else ""
+                for seq, (_, row) in enumerate(day_rows.iterrows()):
+                    row_key = int(row["_row"])
+                    is_editing = st.session_state.get("editing_pc_row") == row_key
 
-                    timeline_html += (
-                        '<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:#faf5ff;border-radius:10px">'
-                        f'<span style="background:#7c3aed;color:white;font-size:10px;font-weight:700;padding:2px 8px;border-radius:12px;min-width:24px;text-align:center;flex-shrink:0">{i+1}</span>'
-                        f'<span style="font-size:13px;font-weight:600;color:#374151;flex:1;min-width:0">{machine}</span>'
-                        f'{memo_chip}'
-                        f'<span style="font-size:11px;color:#7c3aed;font-weight:600;min-width:60px;text-align:right;flex-shrink:0">{person}</span>'
-                        '</div>'
-                    )
+                    machine_txt = str(row["장비명"])
+                    person_txt = str(row["담당자"])
+                    memo_txt = str(row["메모"])
+                    pc_txt = str(row["자리번호"])
+                    date_txt = str(row["날짜"])
 
-                timeline_html += "</div></div>"
+                    c_info, c_edit, c_del = st.columns([6, 0.55, 0.55])
+                    with c_info:
+                        machine_e = html_lib.escape(machine_txt)
+                        person_e = html_lib.escape(person_txt)
+                        memo_e = html_lib.escape(memo_txt)
+                        memo_chip = (
+                            f'<span style="font-size:11px;font-weight:600;color:#6d28d9;'
+                            f'background:linear-gradient(135deg,#ede9fe,#ddd6fe);'
+                            f'padding:3px 10px;border-radius:20px;white-space:nowrap">{memo_e}</span>'
+                        ) if memo_txt else ""
+                        st.markdown(
+                            f'<div style="display:flex;align-items:center;gap:10px;padding:7px 12px;'
+                            f'background:#faf5ff;border-radius:10px">'
+                            f'<span style="background:#7c3aed;color:white;font-size:10px;font-weight:700;'
+                            f'padding:2px 8px;border-radius:12px;min-width:24px;text-align:center;flex-shrink:0">{seq+1}</span>'
+                            f'<span style="font-size:13px;font-weight:600;color:#374151;flex:1;min-width:0">{machine_e}</span>'
+                            f'{memo_chip}'
+                            f'<span style="font-size:11px;color:#7c3aed;font-weight:600;min-width:60px;'
+                            f'text-align:right;flex-shrink:0">{person_e}</span>'
+                            f'</div>',
+                            unsafe_allow_html=True
+                        )
+                    with c_edit:
+                        if st.button("✏️", key=f"edit_pc_{row_key}", help="수정"):
+                            st.session_state["editing_pc_row"] = None if is_editing else row_key
+                            st.rerun()
+                    with c_del:
+                        if st.button("🗑️", key=f"del_pc_{row_key}", help="삭제"):
+                            delete_pc_assignment(row_key)
+                            if st.session_state.get("editing_pc_row") == row_key:
+                                st.session_state["editing_pc_row"] = None
+                            st.rerun()
 
-            timeline_html += "</div>"
-            st.markdown(timeline_html, unsafe_allow_html=True)
+                    if is_editing:
+                        with st.container():
+                            st.markdown(
+                                '<div style="background:#f5f0ff;border-radius:12px;padding:12px 16px;'
+                                'margin:2px 0 8px 0;border:1px solid #ddd6fe">',
+                                unsafe_allow_html=True
+                            )
+                            ef1, ef2 = st.columns(2)
+                            with ef1:
+                                e_date = st.text_input("날짜", value=date_txt, key=f"e_date_{row_key}")
+                                e_machine = st.text_input("장비명", value=machine_txt, key=f"e_machine_{row_key}")
+                            with ef2:
+                                e_person = st.text_input("담당자", value=person_txt, key=f"e_person_{row_key}")
+                                e_memo = st.text_input("메모", value=memo_txt, key=f"e_memo_{row_key}")
+                            e_pc = st.text_input("자리번호", value=pc_txt, key=f"e_pc_{row_key}")
+                            sb1, sb2, _ = st.columns([1, 1, 4])
+                            with sb1:
+                                if st.button("💾 저장", key=f"save_pc_{row_key}", type="primary"):
+                                    update_pc_assignment(row_key, e_date, e_pc, e_machine, e_person, e_memo)
+                                    st.session_state["editing_pc_row"] = None
+                                    st.rerun()
+                            with sb2:
+                                if st.button("취소", key=f"cancel_pc_{row_key}"):
+                                    st.session_state["editing_pc_row"] = None
+                                    st.rerun()
+                            st.markdown('</div>', unsafe_allow_html=True)
 
             # ── 원본 테이블 (접기) ──
             with st.expander("📋 전체 데이터 테이블 보기"):
