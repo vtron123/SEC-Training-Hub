@@ -8,6 +8,7 @@ import json
 import os
 import base64
 import io
+import time
 import html as html_lib
 import altair as alt
 import requests as _req
@@ -622,6 +623,18 @@ def get_sheet_client():
     client = gspread.authorize(creds)
     return client
 
+def _gsheet_retry(fn, max_attempts: int = 3):
+    """Google Sheets API 429(Quota) 발생 시 지수 백오프 재시도"""
+    for attempt in range(max_attempts):
+        try:
+            return fn()
+        except gspread.exceptions.APIError as e:
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            if status == 429 and attempt < max_attempts - 1:
+                time.sleep(2 ** attempt)  # 1초 → 2초 → 포기
+            else:
+                raise
+
 def get_sheet():
     client = get_sheet_client()
     return client.open(SHEET_NAME).get_worksheet(0)
@@ -634,10 +647,10 @@ def get_pc_sheet():
     except:
         return None
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=120)
 def load_all_data():
     sheet = get_sheet()
-    rows = sheet.get_all_values()
+    rows = _gsheet_retry(sheet.get_all_values)
     if len(rows) <= 1:
         return pd.DataFrame()
     df = pd.DataFrame(rows[1:], columns=["날짜", "장비명", "분류", "수량", "내용"] + [f"col{i}" for i in range(max(0, len(rows[1]) - 5))])
@@ -645,13 +658,13 @@ def load_all_data():
     df["수량"] = pd.to_numeric(df["수량"].str.replace(",", ""), errors="coerce").fillna(0).astype(int)
     return df
 
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=120)
 def load_pc_assignments():
     """PC 자리 배정 이력 전체 로드 (날짜 / 자리번호 / 장비명 / 담당자 / 메모)"""
     sheet = get_pc_sheet()
     if sheet is None:
         return pd.DataFrame(columns=["날짜", "자리번호", "장비명", "담당자", "메모"])
-    rows = sheet.get_all_values()
+    rows = _gsheet_retry(sheet.get_all_values)
     if not rows:
         return pd.DataFrame(columns=["날짜", "자리번호", "장비명", "담당자", "메모"])
     # 헤더 없이 저장된 경우도 대응
@@ -747,11 +760,7 @@ def save_pc_assignment(date_str: str, pc_id: str, machine: str, person: str = ""
     sheet = get_pc_sheet()
     if sheet is None:
         return False
-    rows = sheet.get_all_values()
-    # 헤더가 없으면 추가
-    if not rows or rows[0][0] != "날짜":
-        sheet.insert_row(["날짜", "자리번호", "장비명", "담당자", "메모"], index=1)
-    sheet.append_row([date_str, pc_id, machine, person, memo])
+    _gsheet_retry(lambda: sheet.append_row([date_str, pc_id, machine, person, memo]))
     load_pc_assignments.clear()
     return True
 
@@ -780,12 +789,12 @@ def get_schedule_sheet():
     except Exception:
         return None
 
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=120)
 def load_schedules():
     sheet = get_schedule_sheet()
     if sheet is None:
         return pd.DataFrame(columns=["_row", "날짜", "제목", "메모", "완료"])
-    rows = sheet.get_all_values()
+    rows = _gsheet_retry(sheet.get_all_values)
     if not rows or len(rows) <= 1:
         return pd.DataFrame(columns=["_row", "날짜", "제목", "메모", "완료"])
     data_rows = rows[1:] if rows[0][0] == "날짜" else rows
@@ -800,10 +809,7 @@ def save_schedule(date_str: str, title: str, memo: str):
     sheet = get_schedule_sheet()
     if sheet is None:
         return False
-    rows = sheet.get_all_values()
-    if not rows or rows[0][0] != "날짜":
-        sheet.insert_row(["날짜", "제목", "메모", "완료"], index=1)
-    sheet.append_row([date_str, title, memo, ""])
+    _gsheet_retry(lambda: sheet.append_row([date_str, title, memo, ""]))
     load_schedules.clear()
     return True
 
