@@ -533,6 +533,22 @@ def get_penguin_base64() -> str | None:
                 pass
     return None
 
+@st.cache_data
+def get_babynuri_base64() -> str | None:
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    for name in ["babynuri.png", "babynuri.jpg"]:
+        path = os.path.join(base_dir, name)
+        if os.path.exists(path):
+            try:
+                img = Image.open(path).convert("RGBA")
+                img = img.resize((200, 200), Image.LANCZOS)
+                buf = io.BytesIO()
+                img.save(buf, format="PNG")
+                return base64.b64encode(buf.getvalue()).decode()
+            except Exception:
+                pass
+    return None
+
 # ──────────────────────────────────────────────
 # 상수 & 매핑
 # ──────────────────────────────────────────────
@@ -1483,12 +1499,26 @@ with tab3:
                 + items_html + '</div>'
             )
 
-        # ── 캐릭터 이미지 ──
-        _penguin_b64 = get_penguin_base64()
-        char_img = (
+        # ── 캐릭터 이미지 (펭귄 + 베이비누리 나란히) ──
+        _penguin_b64  = get_penguin_base64()
+        _babynuri_b64 = get_babynuri_base64()
+
+        penguin_img = (
             '<img src="data:image/png;base64,' + _penguin_b64
-            + '" style="width:180px;height:180px;object-fit:contain;margin-top:4px" />'
-        ) if _penguin_b64 else '<div style="font-size:100px;line-height:1;margin-top:4px">&#x1F427;</div>'
+            + '" style="width:150px;height:150px;object-fit:contain" />'
+        ) if _penguin_b64 else '<div style="font-size:80px;line-height:1">&#x1F427;</div>'
+
+        babynuri_img = (
+            '<img src="data:image/png;base64,' + _babynuri_b64
+            + '" style="width:150px;height:150px;object-fit:contain" />'
+        ) if _babynuri_b64 else ''
+
+        char_img = (
+            '<div style="display:flex;align-items:flex-end;justify-content:center;gap:0px;margin-top:4px">'
+            + penguin_img
+            + babynuri_img
+            + '</div>'
+        )
 
         briefing_date = today.strftime("%Y.%m.%d")
         bubble_html = (
