@@ -1076,8 +1076,8 @@ with tab1:
                                 st.session_state.search_history.insert(0, m_name)
                                 st.session_state.search_history = st.session_state.search_history[:5]
                             st.rerun()
-                    c2.markdown(f'<p style="font-size:16px;font-weight:700;color:#7c3aed;margin:4px 0">{sheets:,}장</p>', unsafe_allow_html=True)
-                    c3.markdown(f'<p style="font-size:15px;font-weight:600;color:#2563eb;margin:4px 0">{cnt}건</p>', unsafe_allow_html=True)
+                    c2.markdown(f'<div style="background:white;border-radius:10px;padding:5px 12px;display:inline-block;box-shadow:0 1px 6px rgba(0,0,0,0.07);font-size:15px;font-weight:700;color:#7c3aed;margin:2px 0">{sheets:,}장</div>', unsafe_allow_html=True)
+                    c3.markdown(f'<div style="background:white;border-radius:10px;padding:5px 10px;display:inline-block;box-shadow:0 1px 6px rgba(0,0,0,0.07);font-size:14px;font-weight:600;color:#2563eb;margin:2px 0">{cnt}건</div>', unsafe_allow_html=True)
             else:
                 st.markdown('<div class="sec-alert">아직 등록된 데이터가 없습니다. 왼쪽에서 첫 기록을 입력해보세요!</div>', unsafe_allow_html=True)
 
