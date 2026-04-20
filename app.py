@@ -1297,11 +1297,25 @@ with tab2:
 # ══════════════════════════════════════════════
 # TAB 3 — 일정 & 메모
 # ══════════════════════════════════════════════
+_KST = datetime.timezone(datetime.timedelta(hours=9))
+
+def _today_kst() -> datetime.date:
+    """Streamlit Cloud(UTC) 서버에서 KST 기준 오늘 날짜 반환"""
+    return datetime.datetime.now(_KST).date()
+
 def _parse_start_date(date_str: str) -> datetime.date | None:
     """'YYYY-MM-DD' 또는 'YYYY-MM-DD ~ YYYY-MM-DD' 에서 시작일 반환"""
     try:
         s = str(date_str).strip()
         return datetime.datetime.strptime(s.split(" ~ ")[0].strip(), "%Y-%m-%d").date()
+    except Exception:
+        return None
+
+def _parse_end_date(date_str: str) -> datetime.date | None:
+    """'YYYY-MM-DD' 또는 'YYYY-MM-DD ~ YYYY-MM-DD' 에서 종료일 반환"""
+    try:
+        s = str(date_str).strip()
+        return datetime.datetime.strptime(s.split(" ~ ")[-1].strip(), "%Y-%m-%d").date()
     except Exception:
         return None
 
@@ -1312,7 +1326,7 @@ with tab3:
     with col_sch_side:
         st.markdown('<div class="sec-label">📝 일정 추가</div>', unsafe_allow_html=True)
 
-        today_default = datetime.date.today()
+        today_default = _today_kst()
         sch_dates = st.date_input(
             "기간", value=(today_default, today_default),
             key="sch_date_range", label_visibility="collapsed",
@@ -1399,32 +1413,39 @@ with tab3:
         except Exception:
             sch_df_main = pd.DataFrame(columns=["_row", "날짜", "제목", "메모", "완료"])
 
-        today = datetime.date.today()
+        today = _today_kst()
 
-        # ── 날짜 분류 ──
-        today_tasks, tomorrow_tasks, soon_tasks, overdue_tasks = [], [], [], []
+        # ── 날짜 분류 (시작일~종료일 기준) ──
+        today_tasks, deadline_tasks, tomorrow_tasks, soon_tasks, overdue_tasks = [], [], [], [], []
         for _, row in sch_df_main.iterrows():
             if row["완료"] == "✅":
                 continue
-            d = _parse_start_date(row["날짜"])
-            if d is None:
+            start_d = _parse_start_date(row["날짜"])
+            end_d   = _parse_end_date(row["날짜"])
+            if start_d is None or end_d is None:
                 continue
-            delta = (d - today).days
             title_e = html_lib.escape(str(row["제목"]))
-            if delta == 0:
-                today_tasks.append(title_e)
-            elif delta == 1:
-                tomorrow_tasks.append(title_e)
-            elif 2 <= delta <= 7:
-                soon_tasks.append((delta, title_e))
-            elif delta < 0:
-                overdue_tasks.append(title_e)
+
+            if end_d < today:
+                overdue_tasks.append(title_e)                   # 기간 지남
+            elif end_d == today and start_d < today:
+                deadline_tasks.append(title_e)                  # 오늘이 마감일
+            elif start_d <= today <= end_d:
+                today_tasks.append(title_e)                     # 기간 진행 중 (오늘 포함)
+            else:
+                delta = (start_d - today).days
+                if delta == 1:
+                    tomorrow_tasks.append(title_e)
+                elif 2 <= delta <= 7:
+                    soon_tasks.append((delta, title_e))
 
         # ── 말풍선 섹션 HTML 빌드 (string concat — multiline f-string 금지) ──
         bubble_inner = ""
         sections = []
         if today_tasks:
             sections.append(("&#128276;", "오늘의 할 일!", today_tasks, "#7c3aed", "#f5f3ff"))
+        if deadline_tasks:
+            sections.append(("&#128680;", "오늘까지예요!", deadline_tasks, "#ea580c", "#fff7ed"))
         if overdue_tasks:
             sections.append(("&#9888;&#65039;", "지난 일정을 확인해주세요!", overdue_tasks, "#b91c1c", "#fff1f2"))
         if tomorrow_tasks:
@@ -1482,7 +1503,7 @@ with tab3:
             upcoming = upcoming.sort_values("_sort")
             rows_html = ""
             for _, row in upcoming.iterrows():
-                d = _parse_start_date(row["날짜"])
+                d = _parse_end_date(row["날짜"])
                 if d is None:
                     badge = ""
                 else:
