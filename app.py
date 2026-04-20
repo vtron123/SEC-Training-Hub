@@ -1677,107 +1677,151 @@ def _mlb_team_display(en: str) -> str:
         return ko + "(" + abbr + ")"
     return en
 
-# ── KBO / K리그2 한글명 매핑 ──
-_KBO_TEAM_KO: dict[str, str] = {
-    "Lotte Giants": "롯데 자이언츠",
-    "Hanwha Eagles": "한화 이글스",
-    "Samsung Lions": "삼성 라이온즈",
-    "Doosan Bears": "두산 베어스",
-    "KT Wiz": "KT 위즈",
-    "Kia Tigers": "KIA 타이거즈",
-    "NC Dinos": "NC 다이노스",
-    "LG Twins": "LG 트윈스",
-    "SSG Landers": "SSG 랜더스",
-    "Kiwoom Heroes": "키움 히어로즈",
-}
-_KLEAGUE2_TEAM_KO: dict[str, str] = {
-    "Suwon Samsung Bluewings": "수원삼성 블루윙즈",
-    "Suwon FC": "수원FC",
-    "Busan IPark": "부산 아이파크",
-    "Gyeongnam FC": "경남FC",
-    "Seongnam FC": "성남FC",
-    "Jeju United": "제주 유나이티드",
-    "Bucheon FC 1995": "부천FC",
-    "Seoul E-Land": "서울 이랜드",
-    "Chungnam Asan FC": "충남아산",
-    "Daejeon Citizen": "대전시티즌",
+# ── KBO 팀 한글명 + 이모지 ──
+_KBO_TEAMS_DISPLAY: dict[str, tuple[str, str]] = {
+    "Hanwha Eagles":  ("한화 이글스",   "🦅"),
+    "Lotte Giants":   ("롯데 자이언츠", "🎸"),
+    "Samsung Lions":  ("삼성 라이온즈", "🦁"),
+    "LG Twins":       ("LG 트윈스",    "🔴"),
+    "Doosan Bears":   ("두산 베어스",   "🐻"),
+    "KT Wiz":         ("KT 위즈",      "⚫"),
+    "NC Dinos":       ("NC 다이노스",   "🦕"),
+    "Kia Tigers":     ("KIA 타이거즈",  "🐯"),
+    "SSG Landers":    ("SSG 랜더스",   "🔴"),
+    "Kiwoom Heroes":  ("키움 히어로즈", "⚾"),
 }
 
-def _kbo_team_display(en: str) -> str:
-    return _KBO_TEAM_KO.get(en, en)
+# ── K리그2 팀 한글명 + 이모지 ──
+_KL2_TEAMS_DISPLAY: dict[str, tuple[str, str]] = {
+    "Suwon Samsung Bluewings": ("수원삼성 블루윙즈", "💙"),
+    "Suwon FC":                ("수원FC",           "🔵"),
+    "Busan IPark":             ("부산 아이파크",      "⚽"),
+    "Gyeongnam FC":            ("경남FC",            "⚽"),
+    "Seongnam FC":             ("성남FC",            "⚽"),
+    "Jeju United":             ("제주 유나이티드",    "⚽"),
+    "Bucheon FC 1995":         ("부천FC",            "⚽"),
+    "Seoul E-Land":            ("서울 이랜드",        "⚽"),
+    "Chungnam Asan FC":        ("충남아산",           "⚽"),
+    "Daejeon Citizen":         ("대전시티즌",         "⚽"),
+}
 
-def _kl2_team_display(en: str) -> str:
-    return _KLEAGUE2_TEAM_KO.get(en, en)
+def _kbo_info(en: str) -> tuple[str, str]:
+    return _KBO_TEAMS_DISPLAY.get(en, (en, "⚾"))
 
-@st.cache_data(ttl=3600)
-def fetch_kbo_next_games() -> list:
-    """Fetch upcoming KBO games for Lotte Giants and Hanwha Eagles via TheSportsDB"""
-    try:
-        url = "https://www.thesportsdb.com/api/v1/json/3/eventsnextleague.php?id=4849"
-        r = _req.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
-        events = (r.json().get("events") or [])
-        target = {"Lotte Giants", "Hanwha Eagles"}
-        results = []
-        for e in events:
-            ht, at = e.get("strHomeTeam", ""), e.get("strAwayTeam", "")
-            if ht in target or at in target:
-                results.append({
-                    "home": ht, "away": at,
-                    "date": e.get("dateEvent", ""),
-                    "time_utc": e.get("strTime", ""),
-                    "venue": e.get("strVenue", ""),
-                })
-        return results
-    except Exception:
-        return []
+def _kl2_info(en: str) -> tuple[str, str]:
+    return _KL2_TEAMS_DISPLAY.get(en, (en, "⚽"))
 
-@st.cache_data(ttl=3600)
-def fetch_kleague2_next_games() -> list:
-    """Fetch upcoming K-League 2 games for Suwon Samsung & Suwon FC via TheSportsDB"""
-    try:
-        url = "https://www.thesportsdb.com/api/v1/json/3/eventsnextleague.php?id=4855"
-        r = _req.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
-        events = (r.json().get("events") or [])
-        target = {"Suwon Samsung Bluewings", "Suwon FC"}
-        results = []
-        for e in events:
-            ht, at = e.get("strHomeTeam", ""), e.get("strAwayTeam", "")
-            if ht in target or at in target:
-                results.append({
-                    "home": ht, "away": at,
-                    "date": e.get("dateEvent", ""),
-                    "time_utc": e.get("strTime", ""),
-                    "venue": e.get("strVenue", ""),
-                })
-        return results
-    except Exception:
-        return []
+_ESPN_UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
-def _game_card(home_ko: str, away_ko: str, date_str: str, time_utc: str, venue: str = "", accent: str = "#7c3aed"):
-    """Render a styled upcoming game schedule card"""
-    try:
-        kst_time = ""
-        if time_utc and len(time_utc) >= 5:
-            h, m = int(time_utc[:2]), int(time_utc[3:5])
-            kst_h = (h + 9) % 24
-            kst_time = f"{kst_h:02d}:{m:02d} KST"
-    except Exception:
-        kst_time = time_utc
+def _espn_parse_games(events: list, target_kw: list[str]) -> list:
+    results = []
+    for evt in events:
+        comps = (evt.get("competitions") or [{}])[0]
+        competitors = comps.get("competitors", [])
+        home_c = next((c for c in competitors if c.get("homeAway") == "home"), {})
+        away_c = next((c for c in competitors if c.get("homeAway") == "away"), {})
+        hn = home_c.get("team", {}).get("displayName", "")
+        an = away_c.get("team", {}).get("displayName", "")
+        if any(kw in hn or kw in an for kw in target_kw):
+            state = evt.get("status", {}).get("type", {}).get("state", "pre")
+            results.append({
+                "home": hn, "away": an,
+                "home_score": home_c.get("score", ""),
+                "away_score": away_c.get("score", ""),
+                "state": state,
+                "time_kst": _utc_to_kst(evt.get("date", "")),
+                "venue": (comps.get("venue") or {}).get("fullName", ""),
+            })
+    return results
 
-    date_e = html_lib.escape(date_str)
-    home_e = html_lib.escape(home_ko)
-    away_e = html_lib.escape(away_ko)
-    venue_part = ('<div style="font-size:10px;color:#9ca3af;margin-top:3px">📍 ' + html_lib.escape(venue) + '</div>') if venue else ""
-    time_part = ('<span style="font-size:11px;color:' + accent + ';font-weight:600"> · ' + kst_time + '</span>') if kst_time else ""
+@st.cache_data(ttl=600)
+def fetch_kbo_games_range(start_date: str, days: int = 14) -> tuple[list, str]:
+    """Return (games, date_str) for next Lotte/Hanwha game via ESPN KBO API"""
+    target_kw = ["Hanwha", "Lotte", "한화", "롯데"]
+    for d in range(days):
+        check = datetime.datetime.strptime(start_date, "%Y-%m-%d") + datetime.timedelta(days=d)
+        ds = check.strftime("%Y%m%d")
+        try:
+            r = _req.get(
+                f"https://site.api.espn.com/apis/site/v2/sports/baseball/kbo/scoreboard?dates={ds}",
+                timeout=8, headers=_ESPN_UA
+            )
+            games = _espn_parse_games(r.json().get("events", []), target_kw)
+            if games:
+                return games, check.strftime("%Y-%m-%d")
+        except Exception:
+            pass
+    return [], start_date
 
+@st.cache_data(ttl=600)
+def fetch_kl2_games_range(start_date: str, days: int = 21) -> tuple[list, str]:
+    """Return (games, date_str) for next Suwon Samsung/FC game via ESPN K리그2 API"""
+    target_kw = ["Suwon", "수원"]
+    for d in range(days):
+        check = datetime.datetime.strptime(start_date, "%Y-%m-%d") + datetime.timedelta(days=d)
+        ds = check.strftime("%Y%m%d")
+        try:
+            r = _req.get(
+                f"https://site.api.espn.com/apis/site/v2/sports/soccer/kor.2/scoreboard?dates={ds}",
+                timeout=8, headers=_ESPN_UA
+            )
+            games = _espn_parse_games(r.json().get("events", []), target_kw)
+            if games:
+                return games, check.strftime("%Y-%m-%d")
+        except Exception:
+            pass
+    return [], start_date
+
+def _sport_score_card(home_ko: str, away_ko: str, home_em: str, away_em: str,
+                      home_score, away_score, state: str,
+                      date_str: str, time_kst: str, venue: str, accent: str) -> str:
+    """Naver-style score card with team emoji + name"""
+    if state in ("in", "post") and home_score != "":
+        s_badge = "종료" if state == "post" else "LIVE ●"
+        s_color = "#6b7280" if state == "post" else "#dc2626"
+        match_html = (
+            '<div style="display:flex;align-items:center;justify-content:center;gap:10px;margin:8px 0">'
+            '<div style="text-align:center;flex:1">'
+            '<div style="font-size:18px">' + away_em + '</div>'
+            '<div style="font-size:12px;font-weight:700;color:#374151">' + html_lib.escape(away_ko) + '</div>'
+            '</div>'
+            '<div style="font-size:22px;font-weight:900;color:#374151;min-width:70px;text-align:center">'
+            + str(away_score) + ' : ' + str(home_score) + '</div>'
+            '<div style="text-align:center;flex:1">'
+            '<div style="font-size:18px">' + home_em + '</div>'
+            '<div style="font-size:12px;font-weight:700;color:#374151">' + html_lib.escape(home_ko) + '</div>'
+            '</div>'
+            '</div>'
+        )
+    else:
+        s_badge = time_kst or "예정"
+        s_color = accent
+        match_html = (
+            '<div style="display:flex;align-items:center;justify-content:center;gap:10px;margin:8px 0">'
+            '<div style="text-align:center;flex:1">'
+            '<div style="font-size:18px">' + away_em + '</div>'
+            '<div style="font-size:12px;font-weight:700;color:#374151">' + html_lib.escape(away_ko) + '</div>'
+            '</div>'
+            '<div style="font-size:14px;color:#9ca3af;min-width:30px;text-align:center">vs</div>'
+            '<div style="text-align:center;flex:1">'
+            '<div style="font-size:18px">' + home_em + '</div>'
+            '<div style="font-size:12px;font-weight:700;color:#374151">' + html_lib.escape(home_ko) + '</div>'
+            '</div>'
+            '</div>'
+        )
+
+    date_e  = html_lib.escape(date_str)
+    venue_e = (' · 📍' + html_lib.escape(venue)) if venue else ""
     return (
-        '<div style="background:white;border-radius:14px;padding:13px 16px;'
+        '<div style="background:white;border-radius:14px;padding:12px 16px;'
         'box-shadow:0 2px 10px rgba(0,0,0,0.07);margin-bottom:9px;'
         'border-left:4px solid ' + accent + '">'
-        '<div style="font-size:10px;color:#9ca3af;margin-bottom:4px">📅 ' + date_e + time_part + '</div>'
-        '<div style="font-size:13px;font-weight:700;color:#374151">'
-        + away_e + ' <span style="color:#d1d5db">@</span> ' + home_e + '</div>'
-        + venue_part +
+        '<div style="display:flex;justify-content:space-between;align-items:center">'
+        '<span style="font-size:10px;color:#9ca3af">' + date_e + venue_e + '</span>'
+        '<span style="background:' + s_color + ';color:white;font-size:10px;'
+        'padding:2px 9px;border-radius:10px;font-weight:700">' + html_lib.escape(s_badge) + '</span>'
+        '</div>'
+        + match_html +
         '</div>'
     )
 
@@ -1930,16 +1974,21 @@ with tab4:
 
         # ── KBO 다음 경기 ──
         st.markdown('<div class="sec-label" style="margin-top:14px">⚾ KBO (한화·롯데) 다음 경기</div>', unsafe_allow_html=True)
-        kbo_games = fetch_kbo_next_games()
+        kbo_games, kbo_date = fetch_kbo_games_range(today_str4)
         if kbo_games:
-            for kg in kbo_games[:4]:
-                home_ko = _kbo_team_display(kg["home"])
-                away_ko = _kbo_team_display(kg["away"])
-                st.markdown(_game_card(home_ko, away_ko, kg["date"], kg["time_utc"], kg.get("venue", ""), "#e65c00"), unsafe_allow_html=True)
+            for kg in kbo_games[:3]:
+                hko, hem = _kbo_info(kg["home"])
+                ako, aem = _kbo_info(kg["away"])
+                st.markdown(
+                    _sport_score_card(hko, ako, hem, aem,
+                                      kg["home_score"], kg["away_score"], kg["state"],
+                                      kbo_date, kg["time_kst"], kg.get("venue", ""), "#e65c00"),
+                    unsafe_allow_html=True
+                )
         else:
             st.markdown(
                 '<div class="sec-alert" style="font-size:12px">'
-                '일정 정보를 가져오는 중... '
+                '일정을 불러올 수 없어요. '
                 '<a href="https://www.koreabaseball.com/Schedule/Schedule.aspx" target="_blank" '
                 'style="color:#7c3aed;font-weight:700">→ KBO 공식 일정</a>'
                 '</div>', unsafe_allow_html=True
@@ -1947,12 +1996,17 @@ with tab4:
 
         # ── K리그2 다음 경기 ──
         st.markdown('<div class="sec-label" style="margin-top:14px">⚽ K리그2 (수원삼성·수원FC) 다음 경기</div>', unsafe_allow_html=True)
-        kl2_games = fetch_kleague2_next_games()
+        kl2_games, kl2_date = fetch_kl2_games_range(today_str4)
         if kl2_games:
-            for kg in kl2_games[:4]:
-                home_ko = _kl2_team_display(kg["home"])
-                away_ko = _kl2_team_display(kg["away"])
-                st.markdown(_game_card(home_ko, away_ko, kg["date"], kg["time_utc"], kg.get("venue", ""), "#1a7f4b"), unsafe_allow_html=True)
+            for kg in kl2_games[:3]:
+                hko, hem = _kl2_info(kg["home"])
+                ako, aem = _kl2_info(kg["away"])
+                st.markdown(
+                    _sport_score_card(hko, ako, hem, aem,
+                                      kg["home_score"], kg["away_score"], kg["state"],
+                                      kl2_date, kg["time_kst"], kg.get("venue", ""), "#1a7f4b"),
+                    unsafe_allow_html=True
+                )
         else:
             st.markdown(
                 '<div class="sec-alert" style="font-size:12px">'
