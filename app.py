@@ -1637,6 +1637,150 @@ with tab3:
 # ── MLB 대상 팀 ──
 _MLB_TEAMS = {119: "🔵 다저스", 137: "🟠 SF 자이언츠", 144: "🔴 애틀란타(김하성)"}
 
+# ── MLB 팀 한글명 매핑 ──
+_MLB_TEAM_KO: dict[str, tuple[str, str]] = {
+    "Los Angeles Dodgers": ("다저스", "Dodgers"),
+    "San Francisco Giants": ("SF 자이언츠", "Giants"),
+    "Atlanta Braves": ("애틀란타", "Braves"),
+    "New York Yankees": ("양키스", "Yankees"),
+    "New York Mets": ("메츠", "Mets"),
+    "Boston Red Sox": ("레드삭스", "Red Sox"),
+    "Houston Astros": ("애스트로스", "Astros"),
+    "Texas Rangers": ("레인저스", "Rangers"),
+    "Seattle Mariners": ("매리너스", "Mariners"),
+    "Chicago Cubs": ("컵스", "Cubs"),
+    "Chicago White Sox": ("화이트삭스", "White Sox"),
+    "Philadelphia Phillies": ("필리스", "Phillies"),
+    "St. Louis Cardinals": ("카디널스", "Cardinals"),
+    "San Diego Padres": ("파드리스", "Padres"),
+    "Arizona Diamondbacks": ("다이아몬드백스", "D-backs"),
+    "Colorado Rockies": ("로키스", "Rockies"),
+    "Pittsburgh Pirates": ("파이리츠", "Pirates"),
+    "Cincinnati Reds": ("레즈", "Reds"),
+    "Miami Marlins": ("말린스", "Marlins"),
+    "Tampa Bay Rays": ("레이스", "Rays"),
+    "Toronto Blue Jays": ("블루제이스", "Blue Jays"),
+    "Baltimore Orioles": ("오리올스", "Orioles"),
+    "Cleveland Guardians": ("가디언스", "Guardians"),
+    "Detroit Tigers": ("타이거즈", "Tigers"),
+    "Kansas City Royals": ("로열스", "Royals"),
+    "Milwaukee Brewers": ("브루어스", "Brewers"),
+    "Washington Nationals": ("내셔널스", "Nationals"),
+    "Oakland Athletics": ("애슬레틱스", "Athletics"),
+    "Los Angeles Angels": ("LA 에인절스", "Angels"),
+    "Minnesota Twins": ("트윈스", "Twins"),
+}
+
+def _mlb_team_display(en: str) -> str:
+    if en in _MLB_TEAM_KO:
+        ko, abbr = _MLB_TEAM_KO[en]
+        return ko + "(" + abbr + ")"
+    return en
+
+# ── KBO / K리그2 한글명 매핑 ──
+_KBO_TEAM_KO: dict[str, str] = {
+    "Lotte Giants": "롯데 자이언츠",
+    "Hanwha Eagles": "한화 이글스",
+    "Samsung Lions": "삼성 라이온즈",
+    "Doosan Bears": "두산 베어스",
+    "KT Wiz": "KT 위즈",
+    "Kia Tigers": "KIA 타이거즈",
+    "NC Dinos": "NC 다이노스",
+    "LG Twins": "LG 트윈스",
+    "SSG Landers": "SSG 랜더스",
+    "Kiwoom Heroes": "키움 히어로즈",
+}
+_KLEAGUE2_TEAM_KO: dict[str, str] = {
+    "Suwon Samsung Bluewings": "수원삼성 블루윙즈",
+    "Suwon FC": "수원FC",
+    "Busan IPark": "부산 아이파크",
+    "Gyeongnam FC": "경남FC",
+    "Seongnam FC": "성남FC",
+    "Jeju United": "제주 유나이티드",
+    "Bucheon FC 1995": "부천FC",
+    "Seoul E-Land": "서울 이랜드",
+    "Chungnam Asan FC": "충남아산",
+    "Daejeon Citizen": "대전시티즌",
+}
+
+def _kbo_team_display(en: str) -> str:
+    return _KBO_TEAM_KO.get(en, en)
+
+def _kl2_team_display(en: str) -> str:
+    return _KLEAGUE2_TEAM_KO.get(en, en)
+
+@st.cache_data(ttl=3600)
+def fetch_kbo_next_games() -> list:
+    """Fetch upcoming KBO games for Lotte Giants and Hanwha Eagles via TheSportsDB"""
+    try:
+        url = "https://www.thesportsdb.com/api/v1/json/3/eventsnextleague.php?id=4849"
+        r = _req.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+        events = (r.json().get("events") or [])
+        target = {"Lotte Giants", "Hanwha Eagles"}
+        results = []
+        for e in events:
+            ht, at = e.get("strHomeTeam", ""), e.get("strAwayTeam", "")
+            if ht in target or at in target:
+                results.append({
+                    "home": ht, "away": at,
+                    "date": e.get("dateEvent", ""),
+                    "time_utc": e.get("strTime", ""),
+                    "venue": e.get("strVenue", ""),
+                })
+        return results
+    except Exception:
+        return []
+
+@st.cache_data(ttl=3600)
+def fetch_kleague2_next_games() -> list:
+    """Fetch upcoming K-League 2 games for Suwon Samsung & Suwon FC via TheSportsDB"""
+    try:
+        url = "https://www.thesportsdb.com/api/v1/json/3/eventsnextleague.php?id=4855"
+        r = _req.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+        events = (r.json().get("events") or [])
+        target = {"Suwon Samsung Bluewings", "Suwon FC"}
+        results = []
+        for e in events:
+            ht, at = e.get("strHomeTeam", ""), e.get("strAwayTeam", "")
+            if ht in target or at in target:
+                results.append({
+                    "home": ht, "away": at,
+                    "date": e.get("dateEvent", ""),
+                    "time_utc": e.get("strTime", ""),
+                    "venue": e.get("strVenue", ""),
+                })
+        return results
+    except Exception:
+        return []
+
+def _game_card(home_ko: str, away_ko: str, date_str: str, time_utc: str, venue: str = "", accent: str = "#7c3aed"):
+    """Render a styled upcoming game schedule card"""
+    try:
+        kst_time = ""
+        if time_utc and len(time_utc) >= 5:
+            h, m = int(time_utc[:2]), int(time_utc[3:5])
+            kst_h = (h + 9) % 24
+            kst_time = f"{kst_h:02d}:{m:02d} KST"
+    except Exception:
+        kst_time = time_utc
+
+    date_e = html_lib.escape(date_str)
+    home_e = html_lib.escape(home_ko)
+    away_e = html_lib.escape(away_ko)
+    venue_part = ('<div style="font-size:10px;color:#9ca3af;margin-top:3px">📍 ' + html_lib.escape(venue) + '</div>') if venue else ""
+    time_part = ('<span style="font-size:11px;color:' + accent + ';font-weight:600"> · ' + kst_time + '</span>') if kst_time else ""
+
+    return (
+        '<div style="background:white;border-radius:14px;padding:13px 16px;'
+        'box-shadow:0 2px 10px rgba(0,0,0,0.07);margin-bottom:9px;'
+        'border-left:4px solid ' + accent + '">'
+        '<div style="font-size:10px;color:#9ca3af;margin-bottom:4px">📅 ' + date_e + time_part + '</div>'
+        '<div style="font-size:13px;font-weight:700;color:#374151">'
+        + away_e + ' <span style="color:#d1d5db">@</span> ' + home_e + '</div>'
+        + venue_part +
+        '</div>'
+    )
+
 def _utc_to_kst(utc_str: str) -> str:
     try:
         dt = datetime.datetime.strptime(utc_str[:19], "%Y-%m-%dT%H:%M:%S")
@@ -1768,8 +1912,8 @@ with tab4:
                         f'선발: {ap} vs {hp}</div>'
                     )
 
-                away_e = html_lib.escape(g["away"])
-                home_e = html_lib.escape(g["home"])
+                away_e = html_lib.escape(_mlb_team_display(g["away"]))
+                home_e = html_lib.escape(_mlb_team_display(g["home"]))
                 st.markdown(
                     '<div style="background:white;border-radius:16px;padding:14px 18px;'
                     'box-shadow:0 2px 12px rgba(0,0,0,0.07);margin-bottom:10px;'
@@ -1784,28 +1928,44 @@ with tab4:
                     unsafe_allow_html=True
                 )
 
-        # ── KBO 바로가기 ──
-        st.markdown('<div class="sec-label" style="margin-top:14px">⚾ KBO (한화·롯데)</div>', unsafe_allow_html=True)
-        st.markdown(
-            '<div class="sec-alert" style="font-size:12px">'
-            '<a href="https://www.koreabaseball.com/Schedule/Schedule.aspx" target="_blank" '
-            'style="color:#7c3aed;font-weight:700">→ KBO 공식 일정 바로가기</a>'
-            '</div>', unsafe_allow_html=True
-        )
+        # ── KBO 다음 경기 ──
+        st.markdown('<div class="sec-label" style="margin-top:14px">⚾ KBO (한화·롯데) 다음 경기</div>', unsafe_allow_html=True)
+        kbo_games = fetch_kbo_next_games()
+        if kbo_games:
+            for kg in kbo_games[:4]:
+                home_ko = _kbo_team_display(kg["home"])
+                away_ko = _kbo_team_display(kg["away"])
+                st.markdown(_game_card(home_ko, away_ko, kg["date"], kg["time_utc"], kg.get("venue", ""), "#e65c00"), unsafe_allow_html=True)
+        else:
+            st.markdown(
+                '<div class="sec-alert" style="font-size:12px">'
+                '일정 정보를 가져오는 중... '
+                '<a href="https://www.koreabaseball.com/Schedule/Schedule.aspx" target="_blank" '
+                'style="color:#7c3aed;font-weight:700">→ KBO 공식 일정</a>'
+                '</div>', unsafe_allow_html=True
+            )
 
-        # ── K리그 바로가기 ──
-        st.markdown('<div class="sec-label" style="margin-top:14px">⚽ K리그 (수원삼성·수원FC)</div>', unsafe_allow_html=True)
-        st.markdown(
-            '<div class="sec-alert" style="font-size:12px">'
-            '<a href="https://www.kleague.com/schedule/index.do" target="_blank" '
-            'style="color:#7c3aed;font-weight:700">→ K리그 공식 일정 바로가기</a>'
-            '</div>', unsafe_allow_html=True
-        )
+        # ── K리그2 다음 경기 ──
+        st.markdown('<div class="sec-label" style="margin-top:14px">⚽ K리그2 (수원삼성·수원FC) 다음 경기</div>', unsafe_allow_html=True)
+        kl2_games = fetch_kleague2_next_games()
+        if kl2_games:
+            for kg in kl2_games[:4]:
+                home_ko = _kl2_team_display(kg["home"])
+                away_ko = _kl2_team_display(kg["away"])
+                st.markdown(_game_card(home_ko, away_ko, kg["date"], kg["time_utc"], kg.get("venue", ""), "#1a7f4b"), unsafe_allow_html=True)
+        else:
+            st.markdown(
+                '<div class="sec-alert" style="font-size:12px">'
+                '일정 정보를 가져오는 중... '
+                '<a href="https://www.kleague.com/schedule/index.do" target="_blank" '
+                'style="color:#7c3aed;font-weight:700">→ K리그 공식 일정</a>'
+                '</div>', unsafe_allow_html=True
+            )
 
     # ── 오른쪽: 소식 ──
     with col4r:
         st.markdown('<div class="sec-label">📰 최신 소식</div>', unsafe_allow_html=True)
-        ntab1, ntab2, ntab3 = st.tabs(["⚾ 야구 소식", "⚽ 축구 소식", "🎌 애니/만화"])
+        ntab1, ntab2, ntab3 = st.tabs(["⚾ 야구 소식", "⚽ K리그2 소식", "🎌 애니/만화"])
 
         with ntab1:
             q_baseball = quote("롯데자이언츠 OR 한화이글스 OR 다저스 OR 이정후 OR 김하성")
@@ -1822,9 +1982,12 @@ with tab4:
             _news_cards(soccer_news, "축구 소식을 불러올 수 없어요.")
 
         with ntab3:
-            anime_news = fetch_rss_items("https://www.animenewsnetwork.com/all/rss.xml?ann-edition=us", max_items=6)
-            q_manga = quote("manga OR manhwa OR anime new season 2026")
+            q_anime_ko = quote("애니메이션 신작 OR 만화 신작 OR 애니 추천 OR 만화책")
+            q_manga_ko = quote("일본 만화 OR 웹툰 신작 OR 애니 2026 OR 극장판")
+            anime_news = fetch_rss_items(
+                f"https://news.google.com/rss/search?q={q_anime_ko}&hl=ko&gl=KR&ceid=KR:ko", max_items=6
+            )
             manga_news = fetch_rss_items(
-                f"https://news.google.com/rss/search?q={q_manga}&hl=en&gl=US&ceid=US:en", max_items=5
+                f"https://news.google.com/rss/search?q={q_manga_ko}&hl=ko&gl=KR&ceid=KR:ko", max_items=5
             )
             _news_cards(anime_news + manga_news, "애니/만화 소식을 불러올 수 없어요.")
