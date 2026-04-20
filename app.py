@@ -1718,7 +1718,7 @@ _WEEKDAY_KO = ["월", "화", "수", "목", "금", "토", "일"]
 
 _KBO_SCHEDULE: list[dict] = [
     # ── 한화 이글스 (4/21~4/30) ──
-    {"date":"2026-04-21","time":"18:30","away":"한화 이글스","away_em":"🦅","home":"LG 트윈스",    "home_em":"🔴","venue":"잠실"},
+    {"date":"2026-04-21","time":"18:30","away":"한화 이글스","away_em":"🦅","away_p":"문동주","home":"LG 트윈스",    "home_em":"🔴","home_p":"송승기","venue":"잠실"},
     {"date":"2026-04-22","time":"18:30","away":"한화 이글스","away_em":"🦅","home":"LG 트윈스",    "home_em":"🔴","venue":"잠실"},
     {"date":"2026-04-23","time":"18:30","away":"한화 이글스","away_em":"🦅","home":"LG 트윈스",    "home_em":"🔴","venue":"잠실"},
     {"date":"2026-04-24","time":"18:30","home":"한화 이글스","home_em":"🦅","away":"NC 다이노스",  "away_em":"🦕","venue":"대전"},
@@ -1728,7 +1728,7 @@ _KBO_SCHEDULE: list[dict] = [
     {"date":"2026-04-29","time":"18:30","home":"한화 이글스","home_em":"🦅","away":"SSG 랜더스",  "away_em":"🔴","venue":"대전"},
     {"date":"2026-04-30","time":"18:30","home":"한화 이글스","home_em":"🦅","away":"SSG 랜더스",  "away_em":"🔴","venue":"대전"},
     # ── 롯데 자이언츠 (4/21~5/09) ──
-    {"date":"2026-04-21","time":"18:30","home":"롯데 자이언츠","home_em":"🎸","away":"두산 베어스", "away_em":"🐻","venue":"사직"},
+    {"date":"2026-04-21","time":"18:30","home":"롯데 자이언츠","home_em":"🎸","home_p":"나균안","away":"두산 베어스", "away_em":"🐻","venue":"사직"},
     {"date":"2026-04-22","time":"18:30","home":"롯데 자이언츠","home_em":"🎸","away":"두산 베어스", "away_em":"🐻","venue":"사직"},
     {"date":"2026-04-23","time":"18:30","home":"롯데 자이언츠","home_em":"🎸","away":"두산 베어스", "away_em":"🐻","venue":"사직"},
     {"date":"2026-04-24","time":"18:30","away":"롯데 자이언츠","away_em":"🎸","home":"KIA 타이거즈","home_em":"🐯","venue":"광주"},
@@ -1872,6 +1872,17 @@ def _sport_card(game: dict, is_today: bool, live_data: list, accent: str) -> str
             '</div>'
         )
 
+    away_p = game.get("away_p", "")
+    home_p = game.get("home_p", "")
+    if away_p or home_p:
+        pitcher_line = (
+            '<div style="font-size:11px;color:#6b7280;text-align:center;margin-top:2px">'
+            '선발: ' + html_lib.escape(away_p or "미정") + ' vs ' + html_lib.escape(home_p or "미정")
+            + '</div>'
+        )
+    else:
+        pitcher_line = ""
+
     return (
         '<div style="background:white;border-radius:14px;padding:12px 16px;'
         'box-shadow:0 2px 10px rgba(0,0,0,0.07);margin-bottom:9px;'
@@ -1882,6 +1893,7 @@ def _sport_card(game: dict, is_today: bool, live_data: list, accent: str) -> str
         'padding:2px 9px;border-radius:10px;font-weight:700">' + html_lib.escape(s_badge) + '</span>'
         '</div>'
         + match_html +
+        pitcher_line +
         '</div>'
     )
 
