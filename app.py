@@ -2155,72 +2155,78 @@ def _kr_stats_html(team_id: int) -> str:
         + '</div>'
     )
 
-@st.cache_data(ttl=1800)
-def fetch_rss_items(url: str, max_items: int = 7) -> list:
+def _parse_rss_xml(content: bytes) -> "_ET.Element":
+    try:
+        return _ET.fromstring(content)
+    except _ET.ParseError:
+        txt = content.decode("utf-8", errors="replace")
+        txt = re.sub(r"<\?xml[^>]+\?>", "", txt, count=1)
+        return _ET.fromstring(txt.encode("utf-8"))
+
+def _rss_get_items(root: "_ET.Element", max_items: int) -> list:
+    items = []
+    for item in root.findall(".//item")[:max_items]:
+        def _gt(tag):
+            node = item.find(tag)
+            if node is None: return ""
+            t = node.text or ""
+            t = re.sub(r"<!\[CDATA\[(.*?)\]\]>", r"\1", t, flags=re.DOTALL)
+            return re.sub(r"<[^>]+>", "", t).strip()
+        title = _gt("title")
+        link  = _gt("link") or ""
+        raw_pub = _gt("pubDate")
+        pub_disp = raw_pub[:16] if raw_pub else ""
+        sort_ts = 0
+        if raw_pub:
+            for fmt in ("%a, %d %b %Y %H:%M:%S %Z", "%a, %d %b %Y %H:%M:%S %z"):
+                try:
+                    sort_ts = int(datetime.datetime.strptime(raw_pub.strip(), fmt).timestamp())
+                    break
+                except Exception:
+                    pass
+        if title:
+            items.append({"title": title, "link": link, "date": pub_disp, "sort_ts": sort_ts})
+    return items
+
+@st.cache_data(ttl=600)
+def fetch_rss_items(url: str, max_items: int = 8) -> list:
     try:
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
         r = _req.get(url, timeout=12, headers=headers)
         r.raise_for_status()
-        try:
-            root = _ET.fromstring(r.content)
-        except _ET.ParseError:
-            txt = r.content.decode("utf-8", errors="replace")
-            txt = re.sub(r"<\?xml[^>]+\?>", "", txt, count=1)
-            root = _ET.fromstring(txt.encode("utf-8"))
-
-        items = []
-        for item in root.findall(".//item")[:max_items]:
-            def _gt(tag):
-                node = item.find(tag)
-                if node is None:
-                    return ""
-                t = node.text or ""
-                t = re.sub(r"<!\[CDATA\[(.*?)\]\]>", r"\1", t, flags=re.DOTALL)
-                return re.sub(r"<[^>]+>", "", t).strip()
-
-            title = _gt("title")
-            link  = _gt("link") or ""
-            pub   = _gt("pubDate")[:16]
-            if title:
-                items.append({"title": title, "link": link, "date": pub})
-        return items
+        return _rss_get_items(_parse_rss_xml(r.content), max_items)
     except Exception:
         return []
 
 @st.cache_data(ttl=900)
-def _fetch_fast_rss(url: str, max_items: int = 7) -> list:
-    """RSS 빠른 갱신 버전 (TTL 15분) — 애니/만화 전용"""
+def _fetch_fast_rss(url: str, max_items: int = 8) -> list:
+    """TTL 15분 — 애니/만화 전용"""
     try:
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
         r = _req.get(url, timeout=12, headers=headers)
         r.raise_for_status()
-        try:
-            root = _ET.fromstring(r.content)
-        except _ET.ParseError:
-            txt = r.content.decode("utf-8", errors="replace")
-            txt = re.sub(r"<\?xml[^>]+\?>", "", txt, count=1)
-            root = _ET.fromstring(txt.encode("utf-8"))
-        items = []
-        for item in root.findall(".//item")[:max_items]:
-            def _gt(tag):
-                node = item.find(tag)
-                if node is None: return ""
-                t = node.text or ""
-                t = re.sub(r"<!\[CDATA\[(.*?)\]\]>", r"\1", t, flags=re.DOTALL)
-                return re.sub(r"<[^>]+>", "", t).strip()
-            title = _gt("title")
-            link  = _gt("link") or ""
-            pub   = _gt("pubDate")[:16]
-            if title:
-                items.append({"title": title, "link": link, "date": pub})
-        return items
+        return _rss_get_items(_parse_rss_xml(r.content), max_items)
     except Exception:
         return []
+
+def _merge_rss(urls: list[str], max_per: int = 8, limit: int = 10,
+               fast: bool = False) -> list:
+    """여러 RSS URL 합치고 중복 제거 후 최신순 정렬"""
+    seen, all_items = set(), []
+    fetch_fn = _fetch_fast_rss if fast else fetch_rss_items
+    for url in urls:
+        for it in fetch_fn(url, max_items=max_per):
+            k = it["title"][:50]
+            if k not in seen:
+                seen.add(k)
+                all_items.append(it)
+    return sorted(all_items, key=lambda x: x.get("sort_ts", 0), reverse=True)[:limit]
 
 def _news_cards(items, empty_msg="소식을 불러올 수 없어요."):
     if not items:
         st.markdown(f'<div class="sec-alert">{empty_msg}</div>', unsafe_allow_html=True)
         return
+    items = sorted(items, key=lambda x: x.get("sort_ts", 0), reverse=True)
     html = ""
     for it in items:
         t = html_lib.escape(it["title"])
@@ -2347,27 +2353,33 @@ with tab4:
         ntab1, ntab2, ntab3 = st.tabs(["⚾ 야구 소식", "⚽ K리그2 소식", "🎌 애니/만화"])
 
         with ntab1:
-            q_baseball = quote("롯데자이언츠 OR 한화이글스 OR 다저스 OR 이정후 OR 김하성")
-            kbo_news = fetch_rss_items(
-                f"https://news.google.com/rss/search?q={q_baseball}&hl=ko&gl=KR&ceid=KR:ko"
-            )
-            _news_cards(kbo_news, "야구 소식을 불러올 수 없어요.")
+            # MLB: 이정후/오타니/김혜성/김하성 관련 소식
+            q_mlb = quote("이정후 OR 오타니 OR 김혜성 OR 김하성 MLB 야구")
+            # KBO: 롯데자이언츠, 한화이글스 모든 소식 (부상, 콜라보, 선수 등)
+            q_kbo_lotte = quote("롯데자이언츠 KBO 야구")
+            q_kbo_hanhwa = quote("한화이글스 KBO 야구")
+            baseball_news = _merge_rss([
+                f"https://news.google.com/rss/search?q={q_mlb}&hl=ko&gl=KR&ceid=KR:ko",
+                f"https://news.google.com/rss/search?q={q_kbo_lotte}&hl=ko&gl=KR&ceid=KR:ko",
+                f"https://news.google.com/rss/search?q={q_kbo_hanhwa}&hl=ko&gl=KR&ceid=KR:ko",
+            ], max_per=6, limit=12)
+            _news_cards(baseball_news, "야구 소식을 불러올 수 없어요.")
 
         with ntab2:
-            q_soccer = quote("수원삼성블루윙즈 OR 수원FC K리그")
-            soccer_news = fetch_rss_items(
-                f"https://news.google.com/rss/search?q={q_soccer}&hl=ko&gl=KR&ceid=KR:ko"
-            )
+            # 수원삼성, 수원FC 각각 독립 검색 후 합치기
+            q_ss = quote("수원삼성블루윙즈 K리그")
+            q_sfc = quote("수원FC K리그2")
+            soccer_news = _merge_rss([
+                f"https://news.google.com/rss/search?q={q_ss}&hl=ko&gl=KR&ceid=KR:ko",
+                f"https://news.google.com/rss/search?q={q_sfc}&hl=ko&gl=KR&ceid=KR:ko",
+            ], max_per=7, limit=10)
             _news_cards(soccer_news, "축구 소식을 불러올 수 없어요.")
 
         with ntab3:
-            # 인기 시리즈 최신 소식 + 신작 애니 (3개월 이내 구글 뉴스 자동 정렬)
             q_series = quote("헌터x헌터 OR 원피스 OR 주술회전 OR 귀멸의칼날 OR 나의히어로아카데미아 OR 진격의거인 OR 드래곤볼")
             q_new = quote("2026 애니메이션 신작 OR 신규 방영 OR 극장판 개봉 OR 소년점프 신작 OR 만화 완결")
-            series_news = _fetch_fast_rss(
-                f"https://news.google.com/rss/search?q={q_series}&hl=ko&gl=KR&ceid=KR:ko", max_items=6
-            )
-            new_news = _fetch_fast_rss(
-                f"https://news.google.com/rss/search?q={q_new}&hl=ko&gl=KR&ceid=KR:ko", max_items=5
-            )
-            _news_cards(series_news + new_news, "애니/만화 소식을 불러올 수 없어요.")
+            anime_news = _merge_rss([
+                f"https://news.google.com/rss/search?q={q_series}&hl=ko&gl=KR&ceid=KR:ko",
+                f"https://news.google.com/rss/search?q={q_new}&hl=ko&gl=KR&ceid=KR:ko",
+            ], max_per=6, limit=10, fast=True)
+            _news_cards(anime_news, "애니/만화 소식을 불러올 수 없어요.")
