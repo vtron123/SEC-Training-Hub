@@ -2411,19 +2411,69 @@ def _translate_ko(text: str) -> str:
     """Google 비공식 번역 API → 한국어 (TTL 24시간 캐시)"""
     if not text:
         return text
-    try:
-        r = _req.get(
-            "https://translate.googleapis.com/translate_a/single",
-            params={"client": "gtx", "sl": "auto", "tl": "ko", "dt": "t", "q": text},
-            timeout=8,
-        )
-        if r.status_code == 200:
-            parts = r.json()[0]
-            translated = "".join(p[0] for p in parts if p and p[0])
-            return translated if translated else text
-    except Exception:
-        pass
-    return text
+    # 너무 긴 제목은 잘라서 번역 (API 500자 이상 실패)
+    q = text[:480] if len(text) > 480 else text
+    for attempt in range(2):
+        try:
+            r = _req.get(
+                "https://translate.googleapis.com/translate_a/single",
+                params={"client": "gtx", "sl": "auto", "tl": "ko", "dt": "t", "q": q},
+                timeout=10,
+            )
+            if r.status_code == 200:
+                parts = r.json()[0]
+                translated = "".join(p[0] for p in parts if p and p[0])
+                if translated:
+                    # 원본이 잘렸으면 말줄임 추가
+                    return translated + ("…" if len(text) > 480 else "")
+            elif r.status_code == 429 and attempt == 0:
+                import time; time.sleep(1)
+        except Exception:
+            pass
+    return text  # 번역 실패 시 원문 반환
+
+# 인기 애니/만화 + 신작/시즌 키워드 (필터링용)
+_ANIME_POPULAR_KW: list[str] = [
+    # 주요 시리즈
+    "one piece", "ワンピース",
+    "hunter x hunter", "hxh", "ハンターxハンター",
+    "jujutsu kaisen", "呪術廻戦",
+    "demon slayer", "鬼滅の刃",
+    "my hero academia", "僕のヒーローアカデミア",
+    "attack on titan", "進撃の巨人",
+    "dragon ball", "ドラゴンボール",
+    "bleach", "ブリーチ",
+    "naruto", "boruto",
+    "chainsaw man", "チェンソーマン",
+    "spy x family", "スパイファミリー",
+    "blue lock", "ブルーロック",
+    "frieren", "葬送のフリーレン",
+    "solo leveling",
+    "dandadan",
+    "fairy tail",
+    "re:zero",
+    "overlord",
+    "vinland saga",
+    "black clover",
+    "fullmetal alchemist", "鋼の錬金術師",
+    "mob psycho",
+    "dr. stone",
+    "made in abyss",
+    "mushishi",
+    "sword art online",
+    "konosuba",
+    # 신작·시즌 키워드
+    "season 2", "season 3", "season 4", "2期", "3期",
+    "spring 2026", "summer 2026", "fall 2026", "winter 2026",
+    "2026 anime", "new anime", "新作", "新アニメ",
+    "premiere", "first look",
+    # 순위·트렌드
+    "ranking", "top anime", "most popular", "人気",
+]
+
+def _anime_relevant(title: str) -> bool:
+    t = title.lower()
+    return any(kw.lower() in t for kw in _ANIME_POPULAR_KW)
 
 def _news_cards(items, empty_msg="소식을 불러올 수 없어요."):
     if not items:
@@ -2580,15 +2630,19 @@ with tab4:
             _news_cards(soccer_news, "축구 소식을 불러올 수 없어요.")
 
         with ntab3:
-            # 전문 애니/만화 뉴스: ANN(영문) + MAL(영문) + Comic Natalie(일문) 합산
+            # ANN(영문) + MAL(영문) + Comic Natalie(일문) 합산 — 많이 가져와서 필터링
             raw_anime = _merge_rss([
                 "https://www.animenewsnetwork.com/all/rss.xml",
                 "https://myanimelist.net/rss/news.xml",
                 "https://natalie.mu/comic/feed/news",
-            ], max_per=7, limit=15, fast=True)
+            ], max_per=15, limit=60, fast=True)
+            # 인기 시리즈 / 신작 / 순위 관련만 필터링
+            filtered = [it for it in raw_anime if _anime_relevant(it["title"])]
+            # 필터 결과가 너무 적으면 원본에서 최신 10개로 보완
+            show_items = (filtered if len(filtered) >= 5 else raw_anime)[:12]
             # 제목 한국어 번역 (24시간 캐시)
             translated_anime = [
                 {**it, "title": _translate_ko(it["title"])}
-                for it in raw_anime
+                for it in show_items
             ]
             _news_cards(translated_anime, "애니/만화 소식을 불러올 수 없어요.")
