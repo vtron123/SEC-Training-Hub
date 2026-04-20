@@ -1958,10 +1958,10 @@ def fetch_mlb_games(date_str: str) -> list:
 # ── 한국인 선수 등록 (팀ID → 선수 목록) ──
 # en: 박스스코어 이름 검색용 (ID가 없거나 틀릴 때 fallback)
 _KR_PLAYERS: dict[int, list[dict]] = {
-    137: [{"id": 680776, "name": "이정후", "type": "hit",  "en": "Lee"}],
+    137: [{"id": 680776, "name": "이정후", "type": "hit",  "en": "Jung Hoo"}],
     119: [{"id": 660271, "name": "오타니", "type": "both", "en": "Ohtani"},
-          {"id": 0,      "name": "김혜성", "type": "hit",  "en": "Kim"}],   # ID 0 → 이름 검색
-    144: [{"id": 673490, "name": "김하성", "type": "hit",  "en": "Kim"}],
+          {"id": 0,      "name": "김혜성", "type": "hit",  "en": "Hye"}],   # ID 0 → 이름 검색
+    144: [{"id": 673490, "name": "김하성", "type": "hit",  "en": "Ha-seong"}],
 }
 
 @st.cache_data(ttl=3600)
@@ -2039,16 +2039,16 @@ def fetch_game_kr_stats(game_pk: int, team_id: int) -> str:
         lines  = []
 
         for p in players:
-            # ID 0이면 이름으로 검색 (김혜성처럼 ID 미확정)
-            if p["id"]:
-                pdata = all_by_id.get(p["id"])
-            else:
-                en = p.get("en", "")
+            # 1차: ID로 검색
+            pdata = all_by_id.get(p["id"]) if p["id"] else None
+
+            # 2차: ID 실패하면 영문 이름으로 검색 (ID 오류 방어)
+            if not pdata and p.get("en"):
+                en = p["en"].lower()
                 pdata = next(
-                    (v for k, v in all_by_name.items() if en and en.lower() in k.lower()),
+                    (v for k, v in all_by_name.items() if en in k.lower()),
                     None
                 )
-                # 찾았으면 ID 업데이트 (캐시 내에서만)
                 if pdata:
                     p["id"] = pdata.get("person", {}).get("id", 0)
 
