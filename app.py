@@ -655,9 +655,11 @@ def load_all_data():
     rows = _gsheet_retry(sheet.get_all_values)
     if len(rows) <= 1:
         return pd.DataFrame()
-    df = pd.DataFrame(rows[1:], columns=["날짜", "장비명", "분류", "수량", "내용"] + [f"col{i}" for i in range(max(0, len(rows[1]) - 5))])
-    df = df[["날짜", "장비명", "분류", "수량", "내용"]]
+    data_rows = rows[1:]
+    df = pd.DataFrame(data_rows, columns=["날짜", "장비명", "분류", "수량", "내용"] + [f"col{i}" for i in range(max(0, len(data_rows[0]) - 5))])
+    df = df[["날짜", "장비명", "분류", "수량", "내용"]].copy()
     df["수량"] = pd.to_numeric(df["수량"].str.replace(",", ""), errors="coerce").fillna(0).astype(int)
+    df["_row"] = range(2, len(data_rows) + 2)  # 실제 시트 행 번호 (헤더=1, 데이터 시작=2)
     return df
 
 @st.cache_data(ttl=120)
@@ -753,6 +755,18 @@ def search_data(df: pd.DataFrame, query: str):
         return pd.DataFrame(), None
     mask = df.apply(lambda row: any(kw.upper() in " ".join(row.values.astype(str)).upper() for kw in keywords), axis=1)
     return df[mask], " / ".join(keywords)
+
+def delete_record(sheet_row: int):
+    """학습 기록 행 삭제 (sheet_row: 실제 시트 행 번호)"""
+    sheet = get_sheet()
+    _gsheet_retry(lambda: sheet.delete_rows(sheet_row))
+    load_all_data.clear()
+
+def update_record(sheet_row: int, date_str: str, machine: str, category: str, count: int, memo: str):
+    """학습 기록 행 수정 (sheet_row: 실제 시트 행 번호)"""
+    sheet = get_sheet()
+    _gsheet_retry(lambda: sheet.update(f"A{sheet_row}:E{sheet_row}", [[date_str, machine, category, str(count), memo]]))
+    load_all_data.clear()
 
 def record_data(machine: str, count: int, memo: str, category: str = "데이터 기록"):
     sheet = get_sheet()
@@ -1161,17 +1175,42 @@ with tab1:
                 )
                 st.altair_chart(chart, use_container_width=True)
 
-                # 상세 테이블
+                # 상세 테이블 (더블클릭 수정 / 행 삭제 가능)
                 st.markdown('<div class="sec-label">📋 상세 기록</div>', unsafe_allow_html=True)
-                display_df = result_df[["날짜", "장비명", "수량", "내용"]].copy()
-                display_df = display_df.sort_values("날짜", ascending=False)
-                display_df["수량"] = display_df["수량"].apply(lambda x: f"{x:,}장")
-                st.dataframe(
-                    display_df,
+
+                detail_df = result_df.copy()
+                if "_row" not in detail_df.columns:
+                    detail_df["_row"] = range(2, len(detail_df) + 2)
+                detail_df = detail_df.sort_values("날짜", ascending=False).reset_index(drop=True)
+
+                edited = st.data_editor(
+                    detail_df[["날짜", "장비명", "수량", "내용"]],
                     use_container_width=True,
                     hide_index=True,
-                    height=min(400, len(display_df) * 36 + 40),
+                    num_rows="dynamic",
+                    key="rec_data_editor",
+                    height=min(400, len(detail_df) * 36 + 60),
                 )
+
+                if st.button("💾 변경사항 저장", type="primary", key="save_rec_edit"):
+                    state = st.session_state.get("rec_data_editor", {})
+                    for idx_str, vals in (state.get("edited_rows") or {}).items():
+                        orig = detail_df.iloc[int(idx_str)]
+                        update_record(
+                            int(orig["_row"]),
+                            str(vals.get("날짜", orig["날짜"])),
+                            str(vals.get("장비명", orig["장비명"])),
+                            str(orig["분류"]),
+                            int(vals.get("수량", orig["수량"])),
+                            str(vals.get("내용", orig["내용"])),
+                        )
+                    for idx in sorted(state.get("deleted_rows") or [], reverse=True):
+                        delete_record(int(detail_df.iloc[int(idx)]["_row"]))
+                    if state.get("edited_rows") or state.get("deleted_rows"):
+                        _df_fr = load_all_data()
+                        _lbl = st.session_state.search_label
+                        st.session_state.search_result = _df_fr if _lbl == "전체 기록" else search_data(_df_fr, _lbl)[0]
+                        st.rerun()
 
                 # AI 코멘트
                 if cnt > 0:
