@@ -776,6 +776,16 @@ def delete_schedule_row(actual_row: int):
     load_schedules.clear()
     return True
 
+def update_schedule(actual_row: int, date_str: str, title: str, memo: str):
+    sheet = get_schedule_sheet()
+    if sheet is None:
+        return False
+    sheet.update_cell(actual_row, 1, date_str)
+    sheet.update_cell(actual_row, 2, title)
+    sheet.update_cell(actual_row, 3, memo)
+    load_schedules.clear()
+    return True
+
 # ──────────────────────────────────────────────
 # 헤더
 # ──────────────────────────────────────────────
@@ -819,6 +829,8 @@ if "active_tab" not in st.session_state:
     st.session_state.active_tab = 0
 if "search_history" not in st.session_state:
     st.session_state.search_history = []
+if "editing_schedule" not in st.session_state:
+    st.session_state.editing_schedule = None  # {"row": int, "날짜": str, "제목": str, "메모": str}
 
 # ──────────────────────────────────────────────
 # 탭 레이아웃
@@ -1491,7 +1503,7 @@ with tab3:
         )
         st.markdown(bubble_html, unsafe_allow_html=True)
 
-        # ── 다가오는 일정 테이블 ──
+        # ── 다가오는 일정 테이블 (수정 가능) ──
         st.markdown('<div class="sec-label">&#128197; 다가오는 일정 현황</div>', unsafe_allow_html=True)
 
         upcoming = sch_df_main[sch_df_main["완료"] != "✅"].copy() if not sch_df_main.empty else pd.DataFrame()
@@ -1501,39 +1513,109 @@ with tab3:
         else:
             upcoming["_sort"] = upcoming["날짜"].apply(lambda x: str(x).split(" ~ ")[0].strip())
             upcoming = upcoming.sort_values("_sort")
-            rows_html = ""
+
+            # ── 수정 폼 (선택된 행이 있을 때) ──
+            es = st.session_state.editing_schedule
+            if es is not None:
+                with st.container():
+                    st.markdown(
+                        '<div style="background:white;border-radius:16px;padding:16px 20px;'
+                        'box-shadow:0 4px 20px rgba(168,85,247,0.18);border:2px solid #a855f7;margin-bottom:12px">'
+                        '<div style="font-size:12px;font-weight:700;color:#7c3aed;margin-bottom:10px">&#9998; 일정 수정</div>'
+                        '</div>', unsafe_allow_html=True
+                    )
+                    # 기간 파싱
+                    es_date_str = es["날짜"]
+                    if " ~ " in es_date_str:
+                        es_s = datetime.datetime.strptime(es_date_str.split(" ~ ")[0].strip(), "%Y-%m-%d").date()
+                        es_e = datetime.datetime.strptime(es_date_str.split(" ~ ")[1].strip(), "%Y-%m-%d").date()
+                    else:
+                        try:
+                            es_s = es_e = datetime.datetime.strptime(es_date_str.strip(), "%Y-%m-%d").date()
+                        except Exception:
+                            es_s = es_e = _today_kst()
+
+                    edit_dates = st.date_input("수정 기간", value=(es_s, es_e), key="edit_dates")
+                    edit_title = st.text_input("수정 제목", value=es["제목"], key="edit_title")
+                    edit_memo  = st.text_input("수정 메모", value=es["메모"], key="edit_memo")
+
+                    ec1, ec2 = st.columns(2)
+                    with ec1:
+                        if st.button("💾 저장", type="primary", use_container_width=True, key="btn_edit_save"):
+                            try:
+                                if isinstance(edit_dates, (list, tuple)) and len(edit_dates) == 2:
+                                    new_d = (edit_dates[0].strftime("%Y-%m-%d") + " ~ " + edit_dates[1].strftime("%Y-%m-%d")
+                                             if edit_dates[0] != edit_dates[1]
+                                             else edit_dates[0].strftime("%Y-%m-%d"))
+                                else:
+                                    new_d = (edit_dates.strftime("%Y-%m-%d")
+                                             if isinstance(edit_dates, datetime.date)
+                                             else es_date_str)
+                                update_schedule(es["row"], new_d, edit_title.strip(), edit_memo.strip())
+                                st.session_state.editing_schedule = None
+                                st.success("✅ 수정 완료!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"수정 실패: {e}")
+                    with ec2:
+                        if st.button("✖ 취소", use_container_width=True, key="btn_edit_cancel"):
+                            st.session_state.editing_schedule = None
+                            st.rerun()
+
+            # ── 헤더 ──
+            hcols = st.columns([1, 2.5, 3, 2, 1])
+            for txt, col in zip(["D-DAY", "기간", "일정", "메모", ""], hcols):
+                col.markdown(
+                    f'<div style="font-size:11px;font-weight:600;color:#a855f7;'
+                    f'text-transform:uppercase;letter-spacing:0.5px;padding:6px 4px;'
+                    f'border-bottom:1px solid #e9d5ff">{txt}</div>', unsafe_allow_html=True
+                )
+
+            # ── 행 렌더링 ──
             for _, row in upcoming.iterrows():
+                actual_row = int(row["_row"])
                 d = _parse_end_date(row["날짜"])
                 if d is None:
-                    badge = ""
+                    badge_html = ""
                 else:
                     delta = (d - today).days
                     if delta == 0:
-                        badge = '<span style="background:#7c3aed;color:white;font-size:10px;padding:2px 9px;border-radius:12px;font-weight:700">오늘</span>'
+                        badge_html = '<span style="background:#7c3aed;color:white;font-size:10px;padding:2px 9px;border-radius:12px;font-weight:700">오늘</span>'
                     elif delta == 1:
-                        badge = '<span style="background:#2563eb;color:white;font-size:10px;padding:2px 9px;border-radius:12px;font-weight:700">내일</span>'
+                        badge_html = '<span style="background:#2563eb;color:white;font-size:10px;padding:2px 9px;border-radius:12px;font-weight:700">내일</span>'
                     elif delta < 0:
-                        badge = '<span style="background:#dc2626;color:white;font-size:10px;padding:2px 9px;border-radius:12px;font-weight:700">' + str(abs(delta)) + '일 지남</span>'
+                        badge_html = '<span style="background:#dc2626;color:white;font-size:10px;padding:2px 9px;border-radius:12px;font-weight:700">' + str(abs(delta)) + '일 지남</span>'
                     else:
-                        badge = '<span style="background:#16a34a;color:white;font-size:10px;padding:2px 9px;border-radius:12px;font-weight:700">D-' + str(delta) + '</span>'
+                        badge_html = '<span style="background:#16a34a;color:white;font-size:10px;padding:2px 9px;border-radius:12px;font-weight:700">D-' + str(delta) + '</span>'
 
-                rows_html += (
-                    '<tr>'
-                    '<td style="text-align:center">' + badge + '</td>'
-                    '<td style="font-size:12px;color:#6b7280">' + html_lib.escape(str(row["날짜"])) + '</td>'
-                    '<td style="font-weight:600;color:#374151">' + html_lib.escape(str(row["제목"])) + '</td>'
-                    '<td style="font-size:12px;color:#9ca3af">' + html_lib.escape(str(row["메모"])) + '</td>'
-                    '</tr>'
-                )
+                is_editing_this = (es is not None and es["row"] == actual_row)
+                row_bg = "background:#f5f0ff;" if is_editing_this else ""
 
-            table_html = (
-                '<div style="background:white;border-radius:20px;padding:4px;'
-                'box-shadow:var(--shadow-card);overflow:hidden">'
-                '<table class="result-table">'
-                '<thead><tr>'
-                '<th style="text-align:center">D-day</th><th>기간</th><th>일정</th><th>메모</th>'
-                '</tr></thead>'
-                '<tbody>' + rows_html + '</tbody>'
-                '</table></div>'
-            )
-            st.markdown(table_html, unsafe_allow_html=True)
+                rc = st.columns([1, 2.5, 3, 2, 1])
+                with rc[0]:
+                    st.markdown(f'<div style="padding:8px 4px;{row_bg}">{badge_html}</div>', unsafe_allow_html=True)
+                with rc[1]:
+                    st.markdown(
+                        '<div style="font-size:12px;color:#6b7280;padding:8px 4px;' + row_bg + '">'
+                        + html_lib.escape(str(row["날짜"])) + '</div>', unsafe_allow_html=True
+                    )
+                with rc[2]:
+                    st.markdown(
+                        '<div style="font-size:13px;font-weight:600;color:#374151;padding:8px 4px;' + row_bg + '">'
+                        + html_lib.escape(str(row["제목"])) + '</div>', unsafe_allow_html=True
+                    )
+                with rc[3]:
+                    st.markdown(
+                        '<div style="font-size:12px;color:#9ca3af;padding:8px 4px;' + row_bg + '">'
+                        + html_lib.escape(str(row["메모"])) + '</div>', unsafe_allow_html=True
+                    )
+                with rc[4]:
+                    if st.button("✏️", key=f"edit_btn_{actual_row}", use_container_width=True,
+                                 help="일정 수정"):
+                        st.session_state.editing_schedule = {
+                            "row": actual_row,
+                            "날짜": str(row["날짜"]),
+                            "제목": str(row["제목"]),
+                            "메모": str(row["메모"]),
+                        }
+                        st.rerun()
