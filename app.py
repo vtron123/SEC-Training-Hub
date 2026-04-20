@@ -588,6 +588,7 @@ MACHINE_MAP = {
     "EVB-CTL Verkor GF": ["VERKOR GF", "CTL GF"],
     "7000BN": ["7000BN"],
     "HMC(현대차)": ["HMC", "현대차", "현대"],
+    "HMC(현대차) MasterSample": ["MASTERSAMPLE", "MASTER SAMPLE", "마스터샘플", "마스터 샘플"],
     "Master Jig": ["MASTER JIG"],
     "LGES NA LV15": ["LV15", "NA LV15"],
     "LGES HG E81C": ["E81C"],
