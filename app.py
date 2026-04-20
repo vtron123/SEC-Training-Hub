@@ -1716,6 +1716,133 @@ def _kl2_info(en: str) -> tuple[str, str]:
 # ──────────────────────────────────────────────────────
 _WEEKDAY_KO = ["월", "화", "수", "목", "금", "토", "일"]
 
+# 네이버 팀 단축명 → 전체명 매핑
+_KBO_TEAM_SHORT: dict[str, str] = {
+    "한화": "한화 이글스", "롯데": "롯데 자이언츠", "LG": "LG 트윈스",
+    "두산": "두산 베어스", "SSG": "SSG 랜더스", "NC": "NC 다이노스",
+    "KT": "KT 위즈", "KIA": "KIA 타이거즈", "삼성": "삼성 라이온즈",
+    "키움": "키움 히어로즈",
+}
+
+@st.cache_data(ttl=3600)
+def fetch_kbo_pitchers_naver(date_str: str) -> dict:
+    """
+    네이버 스포츠에서 KBO 선발 투수 조회 (TTL 1시간)
+    반환: {(away_full, home_full): {"away_p": str, "home_p": str}}
+    """
+    date_compact = date_str.replace("-", "")
+    hdrs = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
+        "Referer": "https://sports.naver.com/",
+        "Accept": "application/json, text/plain, */*",
+    }
+
+    def _short_to_full(name: str) -> str:
+        for k, v in _KBO_TEAM_SHORT.items():
+            if name.startswith(k) or k in name:
+                return v
+        return name
+
+    def _extract_pitcher(pit_obj) -> tuple[str, str]:
+        if not pit_obj or not isinstance(pit_obj, dict):
+            return "", ""
+        hp = (pit_obj.get("homeStarterName") or pit_obj.get("homePitcher") or
+              (pit_obj.get("home", {}) or {}).get("name", "") or "")
+        ap = (pit_obj.get("awayStarterName") or pit_obj.get("awayPitcher") or
+              (pit_obj.get("away", {}) or {}).get("name", "") or "")
+        return str(ap), str(hp)
+
+    def _parse_games(games: list) -> dict:
+        result = {}
+        for g in (games or []):
+            hn = (g.get("homeTeamName") or
+                  (g.get("homeTeam") or {}).get("name") or "")
+            an = (g.get("awayTeamName") or
+                  (g.get("awayTeam") or {}).get("name") or "")
+            pit = g.get("pitcherInfo") or g.get("pitcher") or {}
+            ap, hp = _extract_pitcher(pit)
+            h_full = _short_to_full(hn)
+            a_full = _short_to_full(an)
+            if h_full or a_full:
+                result[(a_full, h_full)] = {"away_p": ap, "home_p": hp}
+        return result
+
+    def _find_games_in_json(node, depth=0) -> list:
+        if depth > 8: return []
+        if isinstance(node, list) and node and isinstance(node[0], dict):
+            if any(k in node[0] for k in ("homeTeamName","homeTeam","pitcherInfo")):
+                return node
+            for item in node:
+                r = _find_games_in_json(item, depth + 1)
+                if r: return r
+        elif isinstance(node, dict):
+            for v in node.values():
+                r = _find_games_in_json(v, depth + 1)
+                if r: return r
+        return []
+
+    # 시도 1: Naver Sports API Gateway
+    for url in [
+        (f"https://api-gw.sports.naver.com/schedule/games"
+         f"?fields=basic,pitcherInfo&upperCategoryId=kbo"
+         f"&categoryId=kbo&gameType=4&fromDate={date_str}&toDate={date_str}"),
+        (f"https://api-gw.sports.naver.com/sports/kbaseball/schedule"
+         f"?date={date_compact}"),
+    ]:
+        try:
+            r = _req.get(url, timeout=10, headers=hdrs)
+            if r.status_code == 200:
+                data = r.json()
+                games = (data.get("result", {}).get("games") or
+                         data.get("games") or
+                         _find_games_in_json(data))
+                parsed = _parse_games(games)
+                if parsed:
+                    return parsed
+        except Exception:
+            pass
+
+    # 시도 2: 모바일 페이지 __NEXT_DATA__ 파싱
+    try:
+        r = _req.get(
+            f"https://m.sports.naver.com/kbaseball/schedule?date={date_compact}",
+            timeout=12, headers={**hdrs, "Accept": "text/html"},
+        )
+        if r.status_code == 200:
+            m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.+?)</script>',
+                          r.text, re.DOTALL)
+            if m:
+                nd = json.loads(m.group(1))
+                games = _find_games_in_json(nd)
+                parsed = _parse_games(games)
+                if parsed:
+                    return parsed
+    except Exception:
+        pass
+
+    return {}
+
+
+def _overlay_naver_pitchers(game: dict) -> dict:
+    """게임 딕셔너리에 Naver 선발 투수 정보를 오버레이해서 반환 (원본 불변)"""
+    naver = fetch_kbo_pitchers_naver(game["date"])
+    if not naver:
+        return game
+    home_n = game.get("home", "")
+    away_n = game.get("away", "")
+    for (a_full, h_full), pit in naver.items():
+        a_match = a_full[:2] in away_n or away_n[:2] in a_full
+        h_match = h_full[:2] in home_n or home_n[:2] in h_full
+        if a_match and h_match:
+            g = dict(game)
+            if pit.get("away_p"):
+                g["away_p"] = pit["away_p"]
+            if pit.get("home_p"):
+                g["home_p"] = pit["home_p"]
+            return g
+    return game
+
+
 _KBO_SCHEDULE: list[dict] = [
     # ── 한화 이글스 (4/21~4/30) ──
     {"date":"2026-04-21","time":"18:30","away":"한화 이글스","away_em":"🦅","away_p":"문동주","home":"LG 트윈스",    "home_em":"🔴","home_p":"송승기","venue":"잠실"},
@@ -2311,7 +2438,8 @@ with tab4:
         kbo_live = fetch_kbo_live_today(today_str4) if any_kbo_today else []
         if kbo_items:
             for it in kbo_items:
-                kg, lbl, is_td = it["game"], it["label"], it["is_today"]
+                kg = _overlay_naver_pitchers(it["game"])
+                lbl, is_td = it["label"], it["is_today"]
                 lbl_color = "#dc2626" if is_td else "#9ca3af"
                 st.markdown(
                     '<div style="font-size:10px;color:' + lbl_color + ';font-weight:' + ("700" if is_td else "400") + ';margin:6px 0 2px 2px">'
