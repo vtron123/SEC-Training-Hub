@@ -1506,13 +1506,16 @@ with tab3:
         # ── 다가오는 일정 테이블 (수정 가능) ──
         st.markdown('<div class="sec-label">&#128197; 다가오는 일정 현황</div>', unsafe_allow_html=True)
 
-        upcoming = sch_df_main[sch_df_main["완료"] != "✅"].copy() if not sch_df_main.empty else pd.DataFrame()
+        all_sch = sch_df_main.copy() if not sch_df_main.empty else pd.DataFrame()
 
-        if upcoming.empty:
+        if all_sch.empty:
             st.markdown('<div class="sec-alert">등록된 일정이 없어요!</div>', unsafe_allow_html=True)
         else:
-            upcoming["_sort"] = upcoming["날짜"].apply(lambda x: str(x).split(" ~ ")[0].strip())
-            upcoming = upcoming.sort_values("_sort")
+            # 완료된 것은 맨 아래, 나머지는 시작일 오름차순
+            all_sch["_sort_key"] = all_sch.apply(
+                lambda r: ("Z" if r["완료"] == "✅" else "A") + str(r["날짜"]).split(" ~ ")[0].strip(), axis=1
+            )
+            upcoming = all_sch.sort_values("_sort_key")
 
             # ── 수정 폼 (선택된 행이 있을 때) ──
             es = st.session_state.editing_schedule
@@ -1565,22 +1568,34 @@ with tab3:
             # ── 행 렌더링 (카드형) ──
             for _, row in upcoming.iterrows():
                 actual_row = int(row["_row"])
-                d = _parse_end_date(row["날짜"])
-                if d is None:
+                is_done   = row["완료"] == "✅"
+                start_d   = _parse_start_date(row["날짜"])
+                end_d     = _parse_end_date(row["날짜"])
+
+                def _badge(txt, bg):
+                    return (
+                        '<span style="background:' + bg + ';color:white;font-size:10px;'
+                        'padding:3px 10px;border-radius:12px;font-weight:700;white-space:nowrap">'
+                        + txt + '</span>'
+                    )
+
+                if is_done:
+                    badge_html = _badge("완료", "#6b7280")
+                elif end_d is None:
                     badge_html = ""
+                elif end_d < today:
+                    badge_html = _badge("기간 지남", "#991b1b")
+                elif end_d == today:
+                    badge_html = _badge("마감일", "#dc2626")
+                elif start_d is not None and start_d <= today < end_d:
+                    badge_html = _badge("진행 중", "#d97706")
                 else:
-                    delta = (d - today).days
-                    if delta == 0:
-                        badge_html = '<span style="background:#7c3aed;color:white;font-size:10px;padding:3px 10px;border-radius:12px;font-weight:700">오늘</span>'
-                    elif delta == 1:
-                        badge_html = '<span style="background:#2563eb;color:white;font-size:10px;padding:3px 10px;border-radius:12px;font-weight:700">내일</span>'
-                    elif delta < 0:
-                        badge_html = '<span style="background:#dc2626;color:white;font-size:10px;padding:3px 10px;border-radius:12px;font-weight:700">' + str(abs(delta)) + '일 지남</span>'
-                    else:
-                        badge_html = '<span style="background:#16a34a;color:white;font-size:10px;padding:3px 10px;border-radius:12px;font-weight:700">D-' + str(delta) + '</span>'
+                    delta = (start_d - today).days if start_d else 0
+                    badge_html = _badge("D-" + str(delta), "#7c3aed")
 
                 is_editing_this = (es is not None and es["row"] == actual_row)
-                card_border = "border:2px solid #a855f7;" if is_editing_this else "border:1px solid rgba(255,255,255,0.8);"
+                card_border  = "border:2px solid #a855f7;" if is_editing_this else "border:1px solid rgba(255,255,255,0.8);"
+                card_opacity = "opacity:0.55;" if is_done else ""
 
                 date_e  = html_lib.escape(str(row["날짜"]))
                 title_e = html_lib.escape(str(row["제목"]))
@@ -1591,7 +1606,7 @@ with tab3:
                 with col_card:
                     st.markdown(
                         '<div style="background:white;border-radius:14px;padding:12px 18px;'
-                        'box-shadow:0 2px 10px rgba(0,0,0,0.06);margin-bottom:6px;' + card_border + '">'
+                        'box-shadow:0 2px 10px rgba(0,0,0,0.06);margin-bottom:6px;' + card_border + card_opacity + '">'
                         '<div style="display:flex;align-items:center;gap:12px">'
                         '<div style="min-width:60px;text-align:center">' + badge_html + '</div>'
                         '<div style="font-size:11px;color:#9ca3af;min-width:160px">' + date_e + '</div>'
