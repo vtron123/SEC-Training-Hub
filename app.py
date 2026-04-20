@@ -1052,28 +1052,29 @@ with tab1:
                 """, unsafe_allow_html=True)
 
                 # 장비별 요약
-                st.markdown('<div class="sec-label" style="margin-top:4px">🏭 장비별 학습 현황</div>', unsafe_allow_html=True)
+                st.markdown('<div class="sec-label" style="margin-top:4px">🏭 장비별 학습 현황 <span style="font-size:10px;color:#9ca3af;font-weight:400">클릭하면 상세 조회</span></div>', unsafe_allow_html=True)
                 machine_summary = df_all.groupby("장비명")["수량"].agg(["sum", "count"]).reset_index()
                 machine_summary.columns = ["장비명", "총 학습장수", "기록 건수"]
                 machine_summary = machine_summary.sort_values("총 학습장수", ascending=False)
 
-                rows_html = ""
                 for _, row in machine_summary.iterrows():
-                    rows_html += f"""
-                    <tr>
-                        <td><span class="badge badge-purple">{row['장비명']}</span></td>
-                        <td style="font-weight:600;color:#7c3aed">{int(row['총 학습장수']):,}장</td>
-                        <td><span class="badge badge-blue">{int(row['기록 건수'])}건</span></td>
-                    </tr>"""
-
-                st.markdown(f"""
-                <div style="background:white;border-radius:20px;padding:4px;box-shadow:var(--shadow-card);overflow:hidden">
-                <table class="result-table">
-                    <thead><tr><th>장비명</th><th>총 학습장수</th><th>기록 건수</th></tr></thead>
-                    <tbody>{rows_html}</tbody>
-                </table>
-                </div>
-                """, unsafe_allow_html=True)
+                    m_name  = row["장비명"]
+                    m_total = int(row["총 학습장수"])
+                    m_cnt   = int(row["기록 건수"])
+                    c1, c2 = st.columns([3, 2])
+                    with c1:
+                        if st.button(m_name, key=f"mbtn_{m_name}", use_container_width=True):
+                            filtered = df_all[df_all["장비명"] == m_name].copy()
+                            st.session_state.search_result = filtered
+                            st.session_state.search_label = m_name
+                            st.rerun()
+                    with c2:
+                        st.markdown(
+                            f'<div style="padding:6px 4px;font-size:12px;color:#7c3aed;font-weight:600">'
+                            f'{m_total:,}장 <span style="color:#9ca3af;font-weight:400">·</span> '
+                            f'<span style="color:#6b7280;font-weight:400">{m_cnt}건</span></div>',
+                            unsafe_allow_html=True
+                        )
             else:
                 st.markdown('<div class="sec-alert">아직 등록된 데이터가 없습니다. 왼쪽에서 첫 기록을 입력해보세요!</div>', unsafe_allow_html=True)
 
