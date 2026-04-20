@@ -886,21 +886,6 @@ if "search_history" not in st.session_state:
 if "editing_schedule" not in st.session_state:
     st.session_state.editing_schedule = None  # {"row": int, "날짜": str, "제목": str, "메모": str}
 
-# 장비 테이블 클릭 → ?machine=NAME 파라미터 처리
-_qp_machine = st.query_params.get("machine", "")
-if _qp_machine:
-    try:
-        _df_qp = load_all_data()
-        _res_qp = _df_qp[_df_qp["장비명"] == _qp_machine]
-        st.session_state.search_result = _res_qp
-        st.session_state.search_label = _qp_machine
-        if _qp_machine not in st.session_state.search_history:
-            st.session_state.search_history.insert(0, _qp_machine)
-            st.session_state.search_history = st.session_state.search_history[:5]
-    except Exception:
-        pass
-    st.query_params.clear()  # 새로고침 시 반복 방지
-
 # ──────────────────────────────────────────────
 # 탭 레이아웃
 # ──────────────────────────────────────────────
@@ -1036,15 +1021,6 @@ with tab1:
     with col_main:
         df_all = load_all_data()
 
-        # 장비명 뱃지 클릭 → query param으로 전달된 필터 처리
-        if "machine" in st.query_params and not df_all.empty:
-            _clicked_m = st.query_params["machine"]
-            filtered = df_all[df_all["장비명"] == _clicked_m].copy()
-            st.session_state.search_result = filtered
-            st.session_state.search_label = _clicked_m
-            st.query_params.clear()
-            st.rerun()
-
         # 결과가 없을 때 — 대시보드 카드 표시
         if st.session_state.search_result is None:
             st.markdown('<div class="sec-label">📊 전체 현황</div>', unsafe_allow_html=True)
@@ -1076,60 +1052,37 @@ with tab1:
                 </div>
                 """, unsafe_allow_html=True)
 
-                # 장비별 요약
-                st.markdown('<div class="sec-label" style="margin-top:4px">🏭 장비별 학습 현황</div>', unsafe_allow_html=True)
+                # 장비별 요약 — 행 클릭으로 세부 조회
+                st.markdown('<div class="sec-label" style="margin-top:4px">🏭 장비별 학습 현황 <span style="font-size:10px;color:#a855f7;font-weight:400">· 행 클릭 시 세부 기록 조회</span></div>', unsafe_allow_html=True)
                 machine_summary = df_all.groupby("장비명")["수량"].agg(["sum", "count"]).reset_index()
                 machine_summary.columns = ["장비명", "총 학습장수", "기록 건수"]
-                machine_summary = machine_summary.sort_values("총 학습장수", ascending=False)
+                machine_summary = machine_summary.sort_values("총 학습장수", ascending=False).reset_index(drop=True)
 
-                rows_html = ""
-                row_height = 44
-                for _, row in machine_summary.iterrows():
-                    m_js  = row["장비명"].replace("'", "\\'")
-                    m_name = html_lib.escape(str(row["장비명"]))
-                    rows_html += (
-                        f'<tr onclick="navigate(\'{m_js}\')" style="cursor:pointer">'
-                        f'<td><span class="badge-purple">{m_name}</span></td>'
-                        f'<td style="font-weight:600;color:#7c3aed">{int(row["총 학습장수"]):,}장</td>'
-                        f'<td><span class="badge-blue">{int(row["기록 건수"])}건</span></td>'
-                        f'</tr>'
-                    )
+                m_display = machine_summary.copy()
+                m_display["총 학습장수"] = m_display["총 학습장수"].apply(lambda x: f"{int(x):,}장")
+                m_display["기록 건수"] = m_display["기록 건수"].apply(lambda x: f"{int(x)}건")
 
-                tbl_height = 44 + len(machine_summary) * row_height + 10
-                _components.html(f"""
-                <style>
-                  body {{ margin:0; font-family:'Noto Sans KR',sans-serif; }}
-                  table {{ width:100%; border-collapse:collapse; background:white;
-                           border-radius:16px; overflow:hidden;
-                           box-shadow:0 2px 12px rgba(0,0,0,0.07); }}
-                  th {{ background:#f9fafb; font-size:11px; color:#9ca3af;
-                        font-weight:600; padding:10px 14px; text-align:left;
-                        border-bottom:1px solid #f3f4f6; }}
-                  td {{ padding:9px 14px; border-bottom:1px solid #f9fafb;
-                        font-size:13px; }}
-                  tr:last-child td {{ border-bottom:none; }}
-                  tr {{ transition: background 0.12s; }}
-                  tr:hover td {{ background:#faf5ff; }}
-                  tr:hover .badge-purple {{ background:#e9d5ff; }}
-                  tr:active td {{ background:#f3e8ff; }}
-                  .badge-purple {{ background:#f3e8ff; color:#7c3aed; font-size:12px;
-                                   font-weight:600; padding:3px 10px; border-radius:20px;
-                                   transition: background 0.12s; }}
-                  .badge-blue   {{ background:#eff6ff; color:#2563eb; font-size:11px;
-                                   font-weight:500; padding:3px 8px; border-radius:20px; }}
-                  tr td:first-child::after {{ content:'  ›'; color:#c4b5fd; font-size:14px; }}
-                </style>
-                <table>
-                  <thead><tr><th>장비명</th><th>총 학습장수</th><th>기록 건수</th></tr></thead>
-                  <tbody>{rows_html}</tbody>
-                </table>
-                <script>
-                function navigate(name) {{
-                  window.parent.location.href =
-                    window.parent.location.pathname + '?machine=' + encodeURIComponent(name);
-                }}
-                </script>
-                """, height=tbl_height, scrolling=False)
+                m_event = st.dataframe(
+                    m_display,
+                    use_container_width=True,
+                    hide_index=True,
+                    on_select="rerun",
+                    selection_mode="single-row",
+                    column_config={
+                        "장비명":    st.column_config.TextColumn("장비명",    width="large"),
+                        "총 학습장수": st.column_config.TextColumn("총 학습장수", width="medium"),
+                        "기록 건수":  st.column_config.TextColumn("기록 건수",  width="small"),
+                    },
+                )
+                sel_rows = (m_event.selection or {}).get("rows", [])
+                if sel_rows:
+                    m_name = str(machine_summary.iloc[sel_rows[0]]["장비명"])
+                    st.session_state.search_result = df_all[df_all["장비명"] == m_name].copy()
+                    st.session_state.search_label  = m_name
+                    if m_name not in st.session_state.search_history:
+                        st.session_state.search_history.insert(0, m_name)
+                        st.session_state.search_history = st.session_state.search_history[:5]
+                    st.rerun()
             else:
                 st.markdown('<div class="sec-alert">아직 등록된 데이터가 없습니다. 왼쪽에서 첫 기록을 입력해보세요!</div>', unsafe_allow_html=True)
 
