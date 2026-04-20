@@ -1058,16 +1058,15 @@ with tab1:
                 machine_summary.columns = ["장비명", "총 학습장수", "기록 건수"]
                 machine_summary = machine_summary.sort_values("총 학습장수", ascending=False).reset_index(drop=True)
 
-                hdr = st.columns([3, 1.2, 0.8])
+                hdr = st.columns([3, 2])
                 hdr[0].markdown('<p style="font-size:11px;color:#9ca3af;font-weight:600;margin:0">장비명</p>', unsafe_allow_html=True)
-                hdr[1].markdown('<p style="font-size:11px;color:#9ca3af;font-weight:600;margin:0">총 학습장수</p>', unsafe_allow_html=True)
-                hdr[2].markdown('<p style="font-size:11px;color:#9ca3af;font-weight:600;margin:0">기록</p>', unsafe_allow_html=True)
+                hdr[1].markdown('<p style="font-size:11px;color:#9ca3af;font-weight:600;margin:0">총 학습장수 · 기록</p>', unsafe_allow_html=True)
 
                 for _, row in machine_summary.iterrows():
                     m_name  = str(row["장비명"])
                     sheets  = int(row["총 학습장수"])
                     cnt     = int(row["기록 건수"])
-                    c1, c2, c3 = st.columns([3, 1.2, 0.8])
+                    c1, c2, c3 = st.columns([3, 2, 0.01])
                     with c1:
                         if st.button(m_name, key=f"mrow_{m_name}", use_container_width=True):
                             st.session_state.search_result = df_all[df_all["장비명"] == m_name].copy()
@@ -1076,8 +1075,17 @@ with tab1:
                                 st.session_state.search_history.insert(0, m_name)
                                 st.session_state.search_history = st.session_state.search_history[:5]
                             st.rerun()
-                    c2.markdown(f'<div style="background:white;border-radius:10px;padding:5px 12px;display:inline-block;box-shadow:0 1px 6px rgba(0,0,0,0.07);font-size:15px;font-weight:700;color:#7c3aed;margin:2px 0">{sheets:,}장</div>', unsafe_allow_html=True)
-                    c3.markdown(f'<div style="background:white;border-radius:10px;padding:5px 10px;display:inline-block;box-shadow:0 1px 6px rgba(0,0,0,0.07);font-size:14px;font-weight:600;color:#2563eb;margin:2px 0">{cnt}건</div>', unsafe_allow_html=True)
+                    combined = (
+                        f'<div style="background:white;border-radius:10px;padding:5px 14px;'
+                        f'display:inline-flex;align-items:center;gap:10px;'
+                        f'box-shadow:0 1px 6px rgba(0,0,0,0.07);margin:2px 0">'
+                        f'<span style="font-size:15px;font-weight:700;color:#7c3aed">{sheets:,}장</span>'
+                        f'<span style="color:#e5e7eb;font-size:14px">|</span>'
+                        f'<span style="font-size:14px;font-weight:600;color:#2563eb">{cnt}건</span>'
+                        f'</div>'
+                    )
+                    c2.markdown(combined, unsafe_allow_html=True)
+                    c3.empty()
             else:
                 st.markdown('<div class="sec-alert">아직 등록된 데이터가 없습니다. 왼쪽에서 첫 기록을 입력해보세요!</div>', unsafe_allow_html=True)
 
