@@ -1052,37 +1052,32 @@ with tab1:
                 </div>
                 """, unsafe_allow_html=True)
 
-                # 장비별 요약 — 행 클릭으로 세부 조회
-                st.markdown('<div class="sec-label" style="margin-top:4px">🏭 장비별 학습 현황 <span style="font-size:10px;color:#a855f7;font-weight:400">· 행 클릭 시 세부 기록 조회</span></div>', unsafe_allow_html=True)
+                # 장비별 요약 — 버튼 클릭으로 세부 조회
+                st.markdown('<div class="sec-label" style="margin-top:4px">🏭 장비별 학습 현황</div>', unsafe_allow_html=True)
                 machine_summary = df_all.groupby("장비명")["수량"].agg(["sum", "count"]).reset_index()
                 machine_summary.columns = ["장비명", "총 학습장수", "기록 건수"]
                 machine_summary = machine_summary.sort_values("총 학습장수", ascending=False).reset_index(drop=True)
 
-                m_display = machine_summary.copy()
-                m_display["총 학습장수"] = m_display["총 학습장수"].apply(lambda x: f"{int(x):,}장")
-                m_display["기록 건수"] = m_display["기록 건수"].apply(lambda x: f"{int(x)}건")
+                hdr = st.columns([3, 1.2, 0.8])
+                hdr[0].markdown('<p style="font-size:11px;color:#9ca3af;font-weight:600;margin:0">장비명</p>', unsafe_allow_html=True)
+                hdr[1].markdown('<p style="font-size:11px;color:#9ca3af;font-weight:600;margin:0">총 학습장수</p>', unsafe_allow_html=True)
+                hdr[2].markdown('<p style="font-size:11px;color:#9ca3af;font-weight:600;margin:0">기록</p>', unsafe_allow_html=True)
 
-                m_event = st.dataframe(
-                    m_display,
-                    use_container_width=True,
-                    hide_index=True,
-                    on_select="rerun",
-                    selection_mode="single-row",
-                    column_config={
-                        "장비명":    st.column_config.TextColumn("장비명",    width="large"),
-                        "총 학습장수": st.column_config.TextColumn("총 학습장수", width="medium"),
-                        "기록 건수":  st.column_config.TextColumn("기록 건수",  width="small"),
-                    },
-                )
-                sel_rows = (m_event.selection or {}).get("rows", [])
-                if sel_rows:
-                    m_name = str(machine_summary.iloc[sel_rows[0]]["장비명"])
-                    st.session_state.search_result = df_all[df_all["장비명"] == m_name].copy()
-                    st.session_state.search_label  = m_name
-                    if m_name not in st.session_state.search_history:
-                        st.session_state.search_history.insert(0, m_name)
-                        st.session_state.search_history = st.session_state.search_history[:5]
-                    st.rerun()
+                for _, row in machine_summary.iterrows():
+                    m_name  = str(row["장비명"])
+                    sheets  = int(row["총 학습장수"])
+                    cnt     = int(row["기록 건수"])
+                    c1, c2, c3 = st.columns([3, 1.2, 0.8])
+                    with c1:
+                        if st.button(m_name, key=f"mrow_{m_name}", use_container_width=True):
+                            st.session_state.search_result = df_all[df_all["장비명"] == m_name].copy()
+                            st.session_state.search_label  = m_name
+                            if m_name not in st.session_state.search_history:
+                                st.session_state.search_history.insert(0, m_name)
+                                st.session_state.search_history = st.session_state.search_history[:5]
+                            st.rerun()
+                    c2.markdown(f'<p style="font-size:13px;font-weight:600;color:#7c3aed;margin:6px 0">{sheets:,}장</p>', unsafe_allow_html=True)
+                    c3.markdown(f'<p style="font-size:12px;color:#2563eb;margin:6px 0">{cnt}건</p>', unsafe_allow_html=True)
             else:
                 st.markdown('<div class="sec-alert">아직 등록된 데이터가 없습니다. 왼쪽에서 첫 기록을 입력해보세요!</div>', unsafe_allow_html=True)
 
