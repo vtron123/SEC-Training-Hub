@@ -1021,8 +1021,8 @@ with tab1:
         df_all = load_all_data()
 
         # 장비명 뱃지 클릭 → query param으로 전달된 필터 처리
-        _clicked_m = st.query_params.get("machine", "")
-        if _clicked_m and not df_all.empty:
+        if "machine" in st.query_params and not df_all.empty:
+            _clicked_m = st.query_params["machine"]
             filtered = df_all[df_all["장비명"] == _clicked_m].copy()
             st.session_state.search_result = filtered
             st.session_state.search_label = _clicked_m
@@ -1068,19 +1068,24 @@ with tab1:
 
                 rows_html = ""
                 for _, row in machine_summary.iterrows():
-                    m_enc = quote(row["장비명"])
+                    m_enc = quote(str(row["장비명"]))
+                    m_name = html_lib.escape(str(row["장비명"]))
+                    link = f"?machine={m_enc}"
                     rows_html += (
-                        f'<tr style="cursor:pointer" onclick="window.location.href=\'?machine={m_enc}\'">'
-                        f'<td><span class="badge badge-purple">{row["장비명"]}</span></td>'
-                        f'<td style="font-weight:600;color:#7c3aed">{int(row["총 학습장수"]):,}장</td>'
-                        f'<td><span class="badge badge-blue">{int(row["기록 건수"])}건</span></td>'
+                        f'<tr>'
+                        f'<td><a href="{link}" style="text-decoration:none;display:block">'
+                        f'<span class="badge badge-purple">{m_name}</span></a></td>'
+                        f'<td><a href="{link}" style="text-decoration:none;display:block;font-weight:600;color:#7c3aed">'
+                        f'{int(row["총 학습장수"]):,}장</a></td>'
+                        f'<td><a href="{link}" style="text-decoration:none;display:block">'
+                        f'<span class="badge badge-blue">{int(row["기록 건수"])}건</span></a></td>'
                         f'</tr>'
                     )
 
                 st.markdown(f"""
                 <style>
                 .result-table tbody tr:hover td {{ background:#faf5ff; }}
-                .result-table tbody tr {{ cursor:pointer; transition:background 0.15s; }}
+                .result-table tbody tr {{ transition:background 0.15s; }}
                 </style>
                 <div style="background:white;border-radius:20px;padding:4px;box-shadow:var(--shadow-card);overflow:hidden">
                 <table class="result-table">
