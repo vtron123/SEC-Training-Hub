@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as _components
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import datetime
@@ -1067,33 +1068,48 @@ with tab1:
                 machine_summary = machine_summary.sort_values("총 학습장수", ascending=False)
 
                 rows_html = ""
+                row_height = 44
                 for _, row in machine_summary.iterrows():
-                    m_enc = quote(str(row["장비명"]))
+                    m_js  = row["장비명"].replace("'", "\\'")
                     m_name = html_lib.escape(str(row["장비명"]))
-                    link = f"?machine={m_enc}"
                     rows_html += (
-                        f'<tr>'
-                        f'<td><a href="{link}" style="text-decoration:none;display:block">'
-                        f'<span class="badge badge-purple">{m_name}</span></a></td>'
-                        f'<td><a href="{link}" style="text-decoration:none;display:block;font-weight:600;color:#7c3aed">'
-                        f'{int(row["총 학습장수"]):,}장</a></td>'
-                        f'<td><a href="{link}" style="text-decoration:none;display:block">'
-                        f'<span class="badge badge-blue">{int(row["기록 건수"])}건</span></a></td>'
+                        f'<tr onclick="navigate(\'{m_js}\')" style="cursor:pointer">'
+                        f'<td><span class="badge-purple">{m_name}</span></td>'
+                        f'<td style="font-weight:600;color:#7c3aed">{int(row["총 학습장수"]):,}장</td>'
+                        f'<td><span class="badge-blue">{int(row["기록 건수"])}건</span></td>'
                         f'</tr>'
                     )
 
-                st.markdown(f"""
+                tbl_height = 44 + len(machine_summary) * row_height + 10
+                _components.html(f"""
                 <style>
-                .result-table tbody tr:hover td {{ background:#faf5ff; }}
-                .result-table tbody tr {{ transition:background 0.15s; }}
+                  body {{ margin:0; font-family:'Noto Sans KR',sans-serif; }}
+                  table {{ width:100%; border-collapse:collapse; background:white;
+                           border-radius:16px; overflow:hidden;
+                           box-shadow:0 2px 12px rgba(0,0,0,0.07); }}
+                  th {{ background:#f9fafb; font-size:11px; color:#9ca3af;
+                        font-weight:600; padding:10px 14px; text-align:left;
+                        border-bottom:1px solid #f3f4f6; }}
+                  td {{ padding:9px 14px; border-bottom:1px solid #f9fafb;
+                        font-size:13px; }}
+                  tr:last-child td {{ border-bottom:none; }}
+                  tr:hover td {{ background:#faf5ff; }}
+                  .badge-purple {{ background:#f3e8ff; color:#7c3aed; font-size:12px;
+                                   font-weight:600; padding:3px 10px; border-radius:20px; }}
+                  .badge-blue   {{ background:#eff6ff; color:#2563eb; font-size:11px;
+                                   font-weight:500; padding:3px 8px; border-radius:20px; }}
                 </style>
-                <div style="background:white;border-radius:20px;padding:4px;box-shadow:var(--shadow-card);overflow:hidden">
-                <table class="result-table">
-                    <thead><tr><th>장비명</th><th>총 학습장수</th><th>기록 건수</th></tr></thead>
-                    <tbody>{rows_html}</tbody>
+                <table>
+                  <thead><tr><th>장비명</th><th>총 학습장수</th><th>기록 건수</th></tr></thead>
+                  <tbody>{rows_html}</tbody>
                 </table>
-                </div>
-                """, unsafe_allow_html=True)
+                <script>
+                function navigate(name) {{
+                  window.parent.location.href =
+                    window.parent.location.pathname + '?machine=' + encodeURIComponent(name);
+                }}
+                </script>
+                """, height=tbl_height, scrolling=False)
             else:
                 st.markdown('<div class="sec-alert">아직 등록된 데이터가 없습니다. 왼쪽에서 첫 기록을 입력해보세요!</div>', unsafe_allow_html=True)
 
