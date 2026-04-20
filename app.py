@@ -10,6 +10,9 @@ import base64
 import io
 import html as html_lib
 import altair as alt
+import requests as _req
+import xml.etree.ElementTree as _ET
+from urllib.parse import quote
 from PIL import Image
 
 # ──────────────────────────────────────────────
@@ -835,7 +838,7 @@ if "editing_schedule" not in st.session_state:
 # ──────────────────────────────────────────────
 # 탭 레이아웃
 # ──────────────────────────────────────────────
-tab1, tab2, tab3 = st.tabs(["  📊  학습 이력  ", "  🖥️  트레이닝 PC 자리  ", "  📅  일정 & 메모  "])
+tab1, tab2, tab3, tab4 = st.tabs(["  📊  학습 이력  ", "  🖥️  트레이닝 PC 자리  ", "  📅  일정 & 메모  ", "  🏟️  우리만의 일정  "])
 
 # ══════════════════════════════════════════════
 # TAB 1 — 학습 이력
@@ -1625,3 +1628,203 @@ with tab3:
                             "메모": str(row["메모"]),
                         }
                         st.rerun()
+
+
+# ══════════════════════════════════════════════
+# TAB 4 — 우리만의 일정
+# ══════════════════════════════════════════════
+
+# ── MLB 대상 팀 ──
+_MLB_TEAMS = {119: "🔵 다저스", 137: "🟠 SF 자이언츠", 144: "🔴 애틀란타(김하성)"}
+
+def _utc_to_kst(utc_str: str) -> str:
+    try:
+        dt = datetime.datetime.strptime(utc_str[:19], "%Y-%m-%dT%H:%M:%S")
+        return (dt + datetime.timedelta(hours=9)).strftime("%H:%M")
+    except Exception:
+        return ""
+
+@st.cache_data(ttl=600)
+def fetch_mlb_games(date_str: str) -> list:
+    try:
+        ids = ",".join(map(str, _MLB_TEAMS.keys()))
+        url = (
+            "https://statsapi.mlb.com/api/v1/schedule"
+            f"?sportId=1&date={date_str}&teamIds={ids}"
+            "&hydrate=probablePitcher,linescore,team"
+        )
+        data = _req.get(url, timeout=12).json()
+        results = []
+        for date_obj in data.get("dates", []):
+            for g in date_obj.get("games", []):
+                ht = g["teams"]["home"]
+                at = g["teams"]["away"]
+                our_id = ht["team"]["id"] if ht["team"]["id"] in _MLB_TEAMS else at["team"]["id"]
+                status = g["status"]["abstractGameState"]
+                ls = g.get("linescore") or {}
+                results.append({
+                    "our_ko":        _MLB_TEAMS.get(our_id, ""),
+                    "our_id":        our_id,
+                    "home":          ht["team"]["name"],
+                    "away":          at["team"]["name"],
+                    "home_score":    ht.get("score", ""),
+                    "away_score":    at.get("score", ""),
+                    "status":        status,
+                    "game_time_kst": _utc_to_kst(g.get("gameDate", "")),
+                    "home_pitcher":  (ht.get("probablePitcher") or {}).get("fullName", "미정"),
+                    "away_pitcher":  (at.get("probablePitcher") or {}).get("fullName", "미정"),
+                    "inning":        ls.get("currentInning", ""),
+                    "inning_half":   ls.get("inningHalf", ""),
+                })
+        return results
+    except Exception:
+        return []
+
+@st.cache_data(ttl=1800)
+def fetch_rss_items(url: str, max_items: int = 7) -> list:
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        r = _req.get(url, timeout=12, headers=headers)
+        r.raise_for_status()
+        try:
+            root = _ET.fromstring(r.content)
+        except _ET.ParseError:
+            txt = r.content.decode("utf-8", errors="replace")
+            txt = re.sub(r"<\?xml[^>]+\?>", "", txt, count=1)
+            root = _ET.fromstring(txt.encode("utf-8"))
+
+        items = []
+        for item in root.findall(".//item")[:max_items]:
+            def _gt(tag):
+                node = item.find(tag)
+                if node is None:
+                    return ""
+                t = node.text or ""
+                t = re.sub(r"<!\[CDATA\[(.*?)\]\]>", r"\1", t, flags=re.DOTALL)
+                return re.sub(r"<[^>]+>", "", t).strip()
+
+            title = _gt("title")
+            link  = _gt("link") or ""
+            pub   = _gt("pubDate")[:16]
+            if title:
+                items.append({"title": title, "link": link, "date": pub})
+        return items
+    except Exception:
+        return []
+
+def _news_cards(items, empty_msg="소식을 불러올 수 없어요."):
+    if not items:
+        st.markdown(f'<div class="sec-alert">{empty_msg}</div>', unsafe_allow_html=True)
+        return
+    html = ""
+    for it in items:
+        t = html_lib.escape(it["title"])
+        lnk = it["link"]
+        dt  = it.get("date", "")
+        html += (
+            f'<a href="{lnk}" target="_blank" style="text-decoration:none">'
+            '<div style="background:white;border-radius:12px;padding:11px 15px;margin-bottom:8px;'
+            'box-shadow:0 1px 6px rgba(0,0,0,0.06);border:1px solid rgba(168,85,247,0.08)">'
+            f'<div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:3px">{t}</div>'
+            f'<div style="font-size:11px;color:#a855f7">{dt}</div>'
+            '</div></a>'
+        )
+    st.markdown(html, unsafe_allow_html=True)
+
+with tab4:
+    today_str4 = _today_kst().strftime("%Y-%m-%d")
+    col4l, col4r = st.columns([1.1, 1.9], gap="large")
+
+    # ── 왼쪽: 스포츠 경기 ──
+    with col4l:
+
+        # ── MLB 오늘의 경기 ──
+        st.markdown('<div class="sec-label">⚾ MLB 오늘의 경기</div>', unsafe_allow_html=True)
+        mlb_games = fetch_mlb_games(today_str4)
+
+        if not mlb_games:
+            st.markdown('<div class="sec-alert">오늘 경기 정보를 가져올 수 없어요.</div>', unsafe_allow_html=True)
+        else:
+            for g in mlb_games:
+                if g["status"] == "Final":
+                    s_badge, s_color = "종료", "#6b7280"
+                elif g["status"] == "Live":
+                    half = "▲" if "top" in g["inning_half"].lower() else "▼"
+                    inn  = f" {half}{g['inning']}회" if g["inning"] else ""
+                    s_badge, s_color = f"LIVE{inn}", "#dc2626"
+                else:
+                    s_badge, s_color = g["game_time_kst"] or "예정", "#7c3aed"
+
+                if g["status"] in ("Live", "Final") and g["home_score"] != "":
+                    score_part = (
+                        '<div style="font-size:22px;font-weight:800;color:#374151;text-align:center;margin:6px 0">'
+                        + str(g["away_score"]) + ' : ' + str(g["home_score"]) + '</div>'
+                    )
+                else:
+                    ap = html_lib.escape(g["away_pitcher"])
+                    hp = html_lib.escape(g["home_pitcher"])
+                    score_part = (
+                        '<div style="font-size:11px;color:#6b7280;margin-top:4px">'
+                        f'선발: {ap} vs {hp}</div>'
+                    )
+
+                away_e = html_lib.escape(g["away"])
+                home_e = html_lib.escape(g["home"])
+                st.markdown(
+                    '<div style="background:white;border-radius:16px;padding:14px 18px;'
+                    'box-shadow:0 2px 12px rgba(0,0,0,0.07);margin-bottom:10px;'
+                    'border-left:4px solid ' + s_color + '">'
+                    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
+                    '<span style="font-size:12px;font-weight:700;color:' + s_color + '">' + g["our_ko"] + '</span>'
+                    '<span style="background:' + s_color + ';color:white;font-size:10px;padding:2px 9px;border-radius:10px;font-weight:700">' + s_badge + '</span>'
+                    '</div>'
+                    '<div style="font-size:13px;color:#374151;font-weight:600">' + away_e + ' @ ' + home_e + '</div>'
+                    + score_part +
+                    '</div>',
+                    unsafe_allow_html=True
+                )
+
+        # ── KBO 바로가기 ──
+        st.markdown('<div class="sec-label" style="margin-top:14px">⚾ KBO (한화·롯데)</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="sec-alert" style="font-size:12px">'
+            '<a href="https://www.koreabaseball.com/Schedule/Schedule.aspx" target="_blank" '
+            'style="color:#7c3aed;font-weight:700">→ KBO 공식 일정 바로가기</a>'
+            '</div>', unsafe_allow_html=True
+        )
+
+        # ── K리그 바로가기 ──
+        st.markdown('<div class="sec-label" style="margin-top:14px">⚽ K리그 (수원삼성·수원FC)</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="sec-alert" style="font-size:12px">'
+            '<a href="https://www.kleague.com/schedule/index.do" target="_blank" '
+            'style="color:#7c3aed;font-weight:700">→ K리그 공식 일정 바로가기</a>'
+            '</div>', unsafe_allow_html=True
+        )
+
+    # ── 오른쪽: 소식 ──
+    with col4r:
+        st.markdown('<div class="sec-label">📰 최신 소식</div>', unsafe_allow_html=True)
+        ntab1, ntab2, ntab3 = st.tabs(["⚾ 야구 소식", "⚽ 축구 소식", "🎌 애니/만화"])
+
+        with ntab1:
+            q_baseball = quote("롯데자이언츠 OR 한화이글스 OR 다저스 OR 이정후 OR 김하성")
+            kbo_news = fetch_rss_items(
+                f"https://news.google.com/rss/search?q={q_baseball}&hl=ko&gl=KR&ceid=KR:ko"
+            )
+            _news_cards(kbo_news, "야구 소식을 불러올 수 없어요.")
+
+        with ntab2:
+            q_soccer = quote("수원삼성블루윙즈 OR 수원FC K리그")
+            soccer_news = fetch_rss_items(
+                f"https://news.google.com/rss/search?q={q_soccer}&hl=ko&gl=KR&ceid=KR:ko"
+            )
+            _news_cards(soccer_news, "축구 소식을 불러올 수 없어요.")
+
+        with ntab3:
+            anime_news = fetch_rss_items("https://www.animenewsnetwork.com/all/rss.xml?ann-edition=us", max_items=6)
+            q_manga = quote("manga OR manhwa OR anime new season 2026")
+            manga_news = fetch_rss_items(
+                f"https://news.google.com/rss/search?q={q_manga}&hl=en&gl=US&ceid=US:en", max_items=5
+            )
+            _news_cards(anime_news + manga_news, "애니/만화 소식을 불러올 수 없어요.")
