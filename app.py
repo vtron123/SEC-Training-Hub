@@ -1931,23 +1931,110 @@ def fetch_mlb_games(date_str: str) -> list:
                               else at["team"]["id"])
                     status = g["status"]["abstractGameState"]
                     ls = g.get("linescore") or {}
+                    hp_obj = ht.get("probablePitcher") or {}
+                    ap_obj = at.get("probablePitcher") or {}
                     results.append({
-                        "our_ko":        _MLB_TEAMS.get(our_id, ""),
-                        "our_id":        our_id,
-                        "home":          ht["team"]["name"],
-                        "away":          at["team"]["name"],
-                        "home_score":    ht.get("score", ""),
-                        "away_score":    at.get("score", ""),
-                        "status":        status,
-                        "game_time_kst": _utc_to_kst(raw_date),
-                        "home_pitcher":  (ht.get("probablePitcher") or {}).get("fullName", "미정"),
-                        "away_pitcher":  (at.get("probablePitcher") or {}).get("fullName", "미정"),
-                        "inning":        ls.get("currentInning", ""),
-                        "inning_half":   ls.get("inningHalf", ""),
+                        "our_ko":          _MLB_TEAMS.get(our_id, ""),
+                        "our_id":          our_id,
+                        "home":            ht["team"]["name"],
+                        "away":            at["team"]["name"],
+                        "home_score":      ht.get("score", ""),
+                        "away_score":      at.get("score", ""),
+                        "status":          status,
+                        "game_time_kst":   _utc_to_kst(raw_date),
+                        "home_pitcher":    hp_obj.get("fullName", "미정"),
+                        "away_pitcher":    ap_obj.get("fullName", "미정"),
+                        "home_pitcher_id": hp_obj.get("id", 0),
+                        "away_pitcher_id": ap_obj.get("id", 0),
+                        "inning":          ls.get("currentInning", ""),
+                        "inning_half":     ls.get("inningHalf", ""),
                     })
         return results
     except Exception:
         return []
+
+# ── 한국인 선수 등록 (팀ID → 선수 목록) ──
+_KR_PLAYERS: dict[int, list[dict]] = {
+    137: [{"id": 680776, "name": "이정후",  "type": "hit"}],           # SF 자이언츠
+    119: [{"id": 660271, "name": "오타니",  "type": "both"},
+          {"id": 683734, "name": "김혜성",  "type": "hit"}],           # 다저스
+    144: [{"id": 673490, "name": "김하성",  "type": "hit"}],           # 애틀란타
+}
+
+@st.cache_data(ttl=3600)
+def fetch_player_stats(player_id: int, season: int = 2026) -> dict:
+    """MLB Stats API — 선수 시즌 성적 (타격 + 투구)"""
+    if not player_id:
+        return {}
+    try:
+        url = (
+            f"https://statsapi.mlb.com/api/v1/people/{player_id}"
+            f"?hydrate=stats(group=[hitting,pitching],type=[season],season={season})"
+        )
+        data = _req.get(url, timeout=8).json()
+        person = (data.get("people") or [{}])[0]
+        result: dict = {}
+        for s in (person.get("stats") or []):
+            group = s.get("group", {}).get("displayName", "")
+            splits = s.get("splits") or []
+            if splits:
+                result[group] = splits[0].get("stat", {})
+        return result
+    except Exception:
+        return {}
+
+def _pitcher_label(pitcher_id: int, name: str) -> str:
+    """투수 이름 + (X승Y패) 반환"""
+    name_e = html_lib.escape(name)
+    if not pitcher_id or name == "미정":
+        return name_e
+    try:
+        stats = fetch_player_stats(pitcher_id)
+        pit = stats.get("pitching") or {}
+        w, l = pit.get("wins", ""), pit.get("losses", "")
+        if w != "" and l != "":
+            return name_e + f" ({w}승{l}패)"
+    except Exception:
+        pass
+    return name_e
+
+def _kr_stats_html(team_id: int) -> str:
+    """한국인 선수 시즌 성적 한 줄 HTML"""
+    players = _KR_PLAYERS.get(team_id, [])
+    if not players:
+        return ""
+    lines = []
+    for p in players:
+        stats = fetch_player_stats(p["id"])
+        hit = stats.get("hitting") or {}
+        pit = stats.get("pitching") or {}
+        parts = []
+        if p["type"] in ("hit", "both") and hit:
+            avg = hit.get("avg", "")
+            hr  = hit.get("homeRuns", "")
+            rbi = hit.get("rbi", "")
+            g   = hit.get("gamesPlayed", "")
+            if avg:
+                parts.append(f"타율 {avg}  {hr}HR  {rbi}타점")
+        if p["type"] in ("pit", "both") and pit:
+            w   = pit.get("wins", "")
+            l   = pit.get("losses", "")
+            era = pit.get("era", "")
+            ks  = pit.get("strikeOuts", "")
+            if era:
+                parts.append(f"투 {w}승{l}패  ERA {era}  {ks}K")
+        if parts:
+            lines.append(
+                '🇰🇷 <strong>' + html_lib.escape(p["name"]) + '</strong>  '
+                + '  ·  '.join(parts)
+            )
+    if not lines:
+        return ""
+    return (
+        '<div style="border-top:1px solid #f3f4f6;margin-top:8px;padding-top:7px">'
+        + "".join('<div style="font-size:11px;color:#4b5563;line-height:1.8">' + l + '</div>' for l in lines)
+        + '</div>'
+    )
 
 @st.cache_data(ttl=1800)
 def fetch_rss_items(url: str, max_items: int = 7) -> list:
@@ -2054,21 +2141,25 @@ with tab4:
                 else:
                     s_badge, s_color = g["game_time_kst"] or "예정", "#7c3aed"
 
+                ap_label = _pitcher_label(g["away_pitcher_id"], g["away_pitcher"])
+                hp_label = _pitcher_label(g["home_pitcher_id"], g["home_pitcher"])
+                pitcher_line = (
+                    '<div style="font-size:11px;color:#6b7280;margin-top:5px">'
+                    '선발: ' + ap_label + ' vs ' + hp_label + '</div>'
+                )
+
                 if g["status"] in ("Live", "Final") and g["home_score"] != "":
                     score_part = (
-                        '<div style="font-size:22px;font-weight:800;color:#374151;text-align:center;margin:6px 0">'
+                        '<div style="font-size:24px;font-weight:900;color:#374151;text-align:center;margin:6px 0">'
                         + str(g["away_score"]) + ' : ' + str(g["home_score"]) + '</div>'
+                        + pitcher_line
                     )
                 else:
-                    ap = html_lib.escape(g["away_pitcher"])
-                    hp = html_lib.escape(g["home_pitcher"])
-                    score_part = (
-                        '<div style="font-size:11px;color:#6b7280;margin-top:4px">'
-                        f'선발: {ap} vs {hp}</div>'
-                    )
+                    score_part = pitcher_line
 
                 away_e = html_lib.escape(_mlb_team_display(g["away"]))
                 home_e = html_lib.escape(_mlb_team_display(g["home"]))
+                kr_stats = _kr_stats_html(g["our_id"])
                 st.markdown(
                     '<div style="background:white;border-radius:16px;padding:14px 18px;'
                     'box-shadow:0 2px 12px rgba(0,0,0,0.07);margin-bottom:10px;'
@@ -2078,7 +2169,8 @@ with tab4:
                     '<span style="background:' + s_color + ';color:white;font-size:10px;padding:2px 9px;border-radius:10px;font-weight:700">' + s_badge + '</span>'
                     '</div>'
                     '<div style="font-size:13px;color:#374151;font-weight:600">' + away_e + ' @ ' + home_e + '</div>'
-                    + score_part +
+                    + score_part
+                    + kr_stats +
                     '</div>',
                     unsafe_allow_html=True
                 )
