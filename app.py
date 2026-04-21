@@ -78,6 +78,10 @@ html, body, [data-testid="stAppViewContainer"] {
 section[data-testid="stSidebar"] { display: none !important; }
 div[data-testid="stMarkdownContainer"] { width: 100% !important; }
 
+/* ── 최근 등록 내역 버튼 좌측 정렬 ── */
+.recent-recs-wrap button { text-align: left !important; justify-content: flex-start !important; padding-left: 14px !important; }
+.recent-recs-wrap button p { text-align: left !important; }
+
 
 /* ── 헤더 바 ── */
 .sec-header {
@@ -1038,32 +1042,22 @@ with tab1:
             _recent_df = load_all_data()
             if not _recent_df.empty:
                 _recent = _recent_df.sort_values("날짜", ascending=False).head(5)
+                st.markdown('<div class="recent-recs-wrap">', unsafe_allow_html=True)
                 for _ri, (_, _r) in enumerate(_recent.iterrows()):
-                    _date  = html_lib.escape(str(_r['날짜'])[:10])
-                    _mach  = html_lib.escape(str(_r['장비명']))
-                    _cnt   = f"{int(_r['수량']):,}장"
-                    # 투명 버튼 먼저 → 카드 HTML을 위에 덮기 (pointer-events:none)
-                    if st.button("ㅤ", key=f"recent_rec_{_ri}", use_container_width=True):
+                    _date = str(_r['날짜'])[:10]
+                    _mach = str(_r['장비명'])
+                    _cnt  = f"{int(_r['수량']):,}장"
+                    _label = f"{_date}  |  {_mach}  {_cnt}"
+                    if st.button(_label, key=f"recent_rec_{_ri}", use_container_width=True):
                         try:
                             _df2 = load_all_data()
-                            _res2, _lbl2 = search_data(_df2, str(_r['장비명']))
+                            _res2, _lbl2 = search_data(_df2, _mach)
                             st.session_state.search_result = _res2
                             st.session_state.search_label = _lbl2
                             st.rerun()
                         except Exception:
                             pass
-                    st.markdown(
-                        f'<div style="pointer-events:none;margin-top:-42px;margin-bottom:5px;'
-                        f'background:white;border-radius:10px;padding:8px 14px;'
-                        f'box-shadow:0 1px 5px rgba(0,0,0,0.07);'
-                        f'display:flex;align-items:center;gap:10px">'
-                        f'<span style="font-size:11px;color:#9ca3af;min-width:82px">{_date}</span>'
-                        f'<span style="font-size:12px;font-weight:600;color:#7c3aed;flex:1;'
-                        f'overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{_mach}</span>'
-                        f'<span style="font-size:12px;font-weight:700;color:#2563eb;white-space:nowrap">{_cnt}</span>'
-                        f'</div>',
-                        unsafe_allow_html=True
-                    )
+                st.markdown('</div>', unsafe_allow_html=True)
             else:
                 st.markdown('<div class="sec-alert" style="font-size:12px;text-align:center">등록 내역이 없습니다</div>', unsafe_allow_html=True)
         except Exception:
