@@ -1042,9 +1042,20 @@ with tab1:
                     _date  = html_lib.escape(str(_r['날짜'])[:10])
                     _mach  = html_lib.escape(str(_r['장비명']))
                     _cnt   = f"{int(_r['수량']):,}장"
+                    # 투명 버튼 먼저 → 카드 HTML을 위에 덮기 (pointer-events:none)
+                    if st.button("ㅤ", key=f"recent_rec_{_ri}", use_container_width=True):
+                        try:
+                            _df2 = load_all_data()
+                            _res2, _lbl2 = search_data(_df2, str(_r['장비명']))
+                            st.session_state.search_result = _res2
+                            st.session_state.search_label = _lbl2
+                            st.rerun()
+                        except Exception:
+                            pass
                     st.markdown(
-                        f'<div style="background:white;border-radius:10px;padding:8px 14px;'
-                        f'margin-bottom:5px;box-shadow:0 1px 5px rgba(0,0,0,0.07);'
+                        f'<div style="pointer-events:none;margin-top:-42px;margin-bottom:5px;'
+                        f'background:white;border-radius:10px;padding:8px 14px;'
+                        f'box-shadow:0 1px 5px rgba(0,0,0,0.07);'
                         f'display:flex;align-items:center;gap:10px">'
                         f'<span style="font-size:11px;color:#9ca3af;min-width:82px">{_date}</span>'
                         f'<span style="font-size:12px;font-weight:600;color:#7c3aed;flex:1;'
