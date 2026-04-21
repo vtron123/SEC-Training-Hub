@@ -78,6 +78,7 @@ html, body, [data-testid="stAppViewContainer"] {
 section[data-testid="stSidebar"] { display: none !important; }
 div[data-testid="stMarkdownContainer"] { width: 100% !important; }
 
+
 /* ── 헤더 바 ── */
 .sec-header {
     background: rgba(255,255,255,0.72);
@@ -1038,16 +1039,20 @@ with tab1:
             if not _recent_df.empty:
                 _recent = _recent_df.sort_values("날짜", ascending=False).head(5)
                 for _ri, (_, _r) in enumerate(_recent.iterrows()):
-                    _label = f"{str(_r['날짜'])[:10]}  |  {_r['장비명']}  {int(_r['수량']):,}장"
-                    if st.button(_label, key=f"recent_rec_{_ri}", use_container_width=True):
-                        try:
-                            _df = load_all_data()
-                            _res, _lbl = search_data(_df, str(_r['장비명']))
-                            st.session_state.search_result = _res
-                            st.session_state.search_label = _lbl
-                            st.rerun()
-                        except Exception:
-                            pass
+                    _date  = html_lib.escape(str(_r['날짜'])[:10])
+                    _mach  = html_lib.escape(str(_r['장비명']))
+                    _cnt   = f"{int(_r['수량']):,}장"
+                    st.markdown(
+                        f'<div style="background:white;border-radius:10px;padding:8px 14px;'
+                        f'margin-bottom:5px;box-shadow:0 1px 5px rgba(0,0,0,0.07);'
+                        f'display:flex;align-items:center;gap:10px">'
+                        f'<span style="font-size:11px;color:#9ca3af;min-width:82px">{_date}</span>'
+                        f'<span style="font-size:12px;font-weight:600;color:#7c3aed;flex:1;'
+                        f'overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{_mach}</span>'
+                        f'<span style="font-size:12px;font-weight:700;color:#2563eb;white-space:nowrap">{_cnt}</span>'
+                        f'</div>',
+                        unsafe_allow_html=True
+                    )
             else:
                 st.markdown('<div class="sec-alert" style="font-size:12px;text-align:center">등록 내역이 없습니다</div>', unsafe_allow_html=True)
         except Exception:
