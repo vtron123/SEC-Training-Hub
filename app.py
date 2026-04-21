@@ -1324,7 +1324,6 @@ with tab2:
     # ── 오른쪽: 이력 조회 & 타임라인 ──
     with col_pc_main:
         try:
-            load_pc_assignments.clear()
             pc_df = load_pc_assignments()
         except Exception:
             pc_df = pd.DataFrame(columns=["날짜", "자리번호", "장비명", "담당자", "메모", "_row"])
