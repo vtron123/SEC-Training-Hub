@@ -1031,20 +1031,24 @@ with tab1:
                 except Exception as e:
                     st.error(f"오류: {e}")
 
-        # 최근 검색 내역
-        st.markdown('<div class="sec-label" style="margin-top:12px">🕐 최근 검색 내역</div>', unsafe_allow_html=True)
-        if st.session_state.search_history:
-            for i, recent_q in enumerate(st.session_state.search_history):
-                if st.button(f"🔍 {recent_q}", key=f"recent_{i}", use_container_width=True):
-                    try:
-                        df = load_all_data()
-                        result, label = search_data(df, recent_q)
-                        st.session_state.search_result = result
-                        st.session_state.search_label = label
-                    except Exception as e:
-                        st.error(f"오류: {e}")
-        else:
-            st.markdown('<div class="sec-alert" style="font-size:12px;text-align:center">검색 내역이 없습니다</div>', unsafe_allow_html=True)
+        # 최근 등록 내역
+        st.markdown('<div class="sec-label" style="margin-top:12px">🕐 최근 등록 내역</div>', unsafe_allow_html=True)
+        try:
+            _recent_df = load_all_data()
+            if not _recent_df.empty:
+                _recent = _recent_df.sort_values("날짜", ascending=False).head(5)
+                for _, _r in _recent.iterrows():
+                    _label = f"{str(_r['날짜'])[:10]}  {_r['장비명']}  {int(_r['수량']):,}장"
+                    st.markdown(
+                        f'<div style="font-size:11px;color:#6b7280;background:white;border-radius:8px;'
+                        f'padding:6px 12px;margin-bottom:4px;box-shadow:0 1px 4px rgba(0,0,0,0.06)">'
+                        f'📝 {html_lib.escape(_label)}</div>',
+                        unsafe_allow_html=True
+                    )
+            else:
+                st.markdown('<div class="sec-alert" style="font-size:12px;text-align:center">등록 내역이 없습니다</div>', unsafe_allow_html=True)
+        except Exception:
+            st.markdown('<div class="sec-alert" style="font-size:12px;text-align:center">등록 내역이 없습니다</div>', unsafe_allow_html=True)
 
     # ── 오른쪽: 결과 패널 ──
     with col_main:
