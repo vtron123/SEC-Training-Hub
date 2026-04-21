@@ -1037,14 +1037,17 @@ with tab1:
             _recent_df = load_all_data()
             if not _recent_df.empty:
                 _recent = _recent_df.sort_values("날짜", ascending=False).head(5)
-                for _, _r in _recent.iterrows():
-                    _label = f"{str(_r['날짜'])[:10]}  {_r['장비명']}  {int(_r['수량']):,}장"
-                    st.markdown(
-                        f'<div style="font-size:11px;color:#6b7280;background:white;border-radius:8px;'
-                        f'padding:6px 12px;margin-bottom:4px;box-shadow:0 1px 4px rgba(0,0,0,0.06)">'
-                        f'📝 {html_lib.escape(_label)}</div>',
-                        unsafe_allow_html=True
-                    )
+                for _ri, (_, _r) in enumerate(_recent.iterrows()):
+                    _label = f"{str(_r['날짜'])[:10]}  |  {_r['장비명']}  {int(_r['수량']):,}장"
+                    if st.button(_label, key=f"recent_rec_{_ri}", use_container_width=True):
+                        try:
+                            _df = load_all_data()
+                            _res, _lbl = search_data(_df, str(_r['장비명']))
+                            st.session_state.search_result = _res
+                            st.session_state.search_label = _lbl
+                            st.rerun()
+                        except Exception:
+                            pass
             else:
                 st.markdown('<div class="sec-alert" style="font-size:12px;text-align:center">등록 내역이 없습니다</div>', unsafe_allow_html=True)
         except Exception:
