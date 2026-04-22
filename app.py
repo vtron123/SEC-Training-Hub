@@ -1811,37 +1811,32 @@ with tab3:
                         if _es <= _dd2 <= _ee:
                             _day_evs.setdefault(_d, []).append((str(_er["제목"]), _ec, _rid))
 
-            # ── HTML 테이블 달력 ──
-            _cal_html = (
-                '<div style="background:white;border-radius:18px;padding:14px 8px 10px;'
-                'box-shadow:0 2px 12px rgba(0,0,0,0.07);margin-top:6px;overflow:hidden">'
-                '<table style="width:100%;border-collapse:collapse;table-layout:fixed">'
-                '<thead><tr>'
+            # ── HTML 테이블 달력 (iframe 컴포넌트 — 이벤트 클릭 시 부모 창 이동) ──
+            _tbl = (
+                '<table style="width:100%;border-collapse:collapse;table-layout:fixed;'
+                'font-family:Pretendard,sans-serif"><thead><tr>'
             )
             for _di, _dname in enumerate(_dn):
                 _dc = "#ef4444" if _di==6 else ("#3b82f6" if _di==5 else "#6b7280")
-                _cal_html += (
+                _tbl += (
                     f'<th style="text-align:center;padding:6px 0 8px;font-size:11px;'
                     f'font-weight:700;color:{_dc};border-bottom:2px solid #f3f4f6;width:14.28%">'
                     f'{_dname}</th>'
                 )
-            _cal_html += '</tr></thead><tbody>'
+            _tbl += '</tr></thead><tbody>'
 
             for _week in _mcal:
-                _cal_html += '<tr>'
+                _tbl += '<tr>'
                 for _wi, _day in enumerate(_week):
                     _dc = "#ef4444" if _wi==6 else ("#3b82f6" if _wi==5 else "#374151")
-                    _cal_html += (
-                        '<td style="vertical-align:top;padding:4px 3px;'
-                        'border-top:1px solid #f3f4f6;min-height:64px">'
-                    )
+                    _tbl += '<td style="vertical-align:top;padding:4px 3px;border-top:1px solid #f3f4f6;min-height:64px">'
                     if _day == 0:
-                        _cal_html += '&nbsp;'
+                        _tbl += '&nbsp;'
                     else:
                         _dd = datetime.date(_yr, _mo, _day)
                         _is_td = (_dd == today)
                         if _is_td:
-                            _cal_html += (
+                            _tbl += (
                                 f'<div style="text-align:center;margin-bottom:2px">'
                                 f'<span style="background:linear-gradient(135deg,#a855f7,#7c3aed);'
                                 f'color:white;border-radius:50%;width:20px;height:20px;'
@@ -1849,24 +1844,53 @@ with tab3:
                                 f'font-size:10px;font-weight:700">{_day}</span></div>'
                             )
                         else:
-                            _cal_html += (
+                            _tbl += (
                                 f'<div style="text-align:center;font-size:11px;font-weight:600;'
                                 f'color:{_dc};margin-bottom:2px">{_day}</div>'
                             )
                         for _et, _ec, _rid in _day_evs.get(_day, []):
                             _short = html_lib.escape((_et[:5] + "…") if len(_et) > 5 else _et)
-                            _cal_html += (
-                                f'<a href="?edit_row={_rid}" title="{html_lib.escape(_et)}" '
+                            _full  = html_lib.escape(_et)
+                            _tbl += (
+                                f'<div class="ev-chip" data-row="{_rid}" title="{_full}" '
                                 f'style="display:block;background:{_ec};color:white;font-size:9px;'
                                 f'padding:1px 5px;border-radius:3px;margin:1px 0;'
-                                f'text-decoration:none;overflow:hidden;white-space:nowrap;'
-                                f'line-height:1.7;cursor:pointer">{_short}</a>'
+                                f'overflow:hidden;white-space:nowrap;line-height:1.7;'
+                                f'cursor:pointer;user-select:none">{_short}</div>'
                             )
-                    _cal_html += '</td>'
-                _cal_html += '</tr>'
+                    _tbl += '</td>'
+                _tbl += '</tr>'
+            _tbl += '</tbody></table>'
 
-            _cal_html += '</tbody></table></div>'
-            st.markdown(_cal_html, unsafe_allow_html=True)
+            _cal_rows   = len(_mcal)
+            _cal_height = _cal_rows * 68 + 60
+
+            _comp_html = f"""<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body {{ margin:0; padding:0; background:transparent; overflow:hidden; }}
+  .cal-wrap {{
+    background:white; border-radius:18px; padding:14px 8px 10px;
+    box-shadow:0 2px 12px rgba(0,0,0,0.07); overflow:hidden;
+  }}
+  .ev-chip:hover {{ opacity:0.85; }}
+</style>
+</head>
+<body>
+<div class="cal-wrap">{_tbl}</div>
+<script>
+document.querySelectorAll('.ev-chip').forEach(function(chip) {{
+  chip.addEventListener('click', function() {{
+    var rowId = this.getAttribute('data-row');
+    window.parent.location.href =
+      window.parent.location.pathname + '?edit_row=' + rowId;
+  }});
+}});
+</script>
+</body>
+</html>"""
+            _components.html(_comp_html, height=_cal_height, scrolling=False)
 
         else:
             # ── 주간 Gantt (이벤트 제목 클릭 가능) ──
