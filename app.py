@@ -921,9 +921,73 @@ if "search_history" not in st.session_state:
 if "editing_schedule" not in st.session_state:
     st.session_state.editing_schedule = None  # {"row": int, "날짜": str, "제목": str, "메모": str}
 
-# ── 캘린더 커스텀 컴포넌트 등록 ──
-_CAL_COMP_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cal_component")
-_cal_component = _components.declare_component("sec_cal_component", path=_CAL_COMP_PATH)
+# ── 캘린더 커스텀 컴포넌트 (런타임에 임시 디렉토리 생성) ──
+import tempfile as _tempfile
+_CAL_COMP_DIR   = os.path.join(_tempfile.gettempdir(), "sec_cal_comp_v2")
+_CAL_COMP_INDEX = os.path.join(_CAL_COMP_DIR, "index.html")
+os.makedirs(_CAL_COMP_DIR, exist_ok=True)
+_CAL_HTML_SRC = """<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+*{box-sizing:border-box}
+body{margin:0;padding:0;font-family:'Pretendard','Apple SD Gothic Neo',sans-serif;background:transparent;overflow:hidden}
+.cal-wrap{background:white;border-radius:18px;padding:14px 8px 10px;box-shadow:0 2px 12px rgba(0,0,0,.07);overflow:hidden}
+table{width:100%;border-collapse:collapse;table-layout:fixed}
+th{text-align:center;padding:6px 0 8px;font-size:11px;font-weight:700;border-bottom:2px solid #f3f4f6}
+td{vertical-align:top;padding:4px 3px;border-top:1px solid #f3f4f6}
+.day-num{text-align:center;font-size:11px;font-weight:600;margin-bottom:2px}
+.today-num{text-align:center;margin-bottom:2px}
+.today-circle{background:linear-gradient(135deg,#a855f7,#7c3aed);color:white;border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700}
+.ev-chip{display:block;color:white;font-size:9px;padding:1px 5px;border-radius:3px;margin:1px 0;overflow:hidden;white-space:nowrap;line-height:1.7;cursor:pointer;user-select:none}
+.ev-chip:hover{opacity:.82}
+.ev-empty{height:18px;margin:1px 0;display:block}
+</style></head>
+<body><div id="root"></div>
+<script>
+window.parent.postMessage({type:"streamlit:componentReady",apiVersion:1},"*");
+function sendValue(v){window.parent.postMessage({type:"streamlit:setComponentValue",value:v,dataType:"json"},"*")}
+window.addEventListener("message",function(e){if(e.data&&e.data.type==="streamlit:render")render(e.data.args)});
+function render(a){
+  var DN=["월","화","수","목","금","토","일"],DC=["#6b7280","#6b7280","#6b7280","#6b7280","#6b7280","#3b82f6","#ef4444"];
+  var h='<div class="cal-wrap"><table><thead><tr>';
+  for(var i=0;i<7;i++)h+='<th style="color:'+DC[i]+'">'+DN[i]+'</th>';
+  h+='</tr></thead><tbody>';
+  for(var wi=0;wi<a.mcal.length;wi++){
+    var wk=a.mcal[wi],ro=[],rs={};
+    for(var di=0;di<7;di++){var d=wk[di];if(!d)continue;var evs=a.day_evs[String(d)]||[];for(var ei=0;ei<evs.length;ei++){var rid=evs[ei][2];if(!(rid in rs)){rs[rid]=ro.length;ro.push(rid)}}}
+    var slots=ro.length;
+    h+='<tr>';
+    for(var di=0;di<7;di++){
+      var d=wk[di],dc=(di===6)?"#ef4444":(di===5?"#3b82f6":"#374151");
+      h+='<td>';
+      if(!d){h+='&nbsp;'}else{
+        var p2=function(n){return String(n).padStart(2,'0')};
+        var ds=a.year+'-'+p2(a.month)+'-'+p2(d);
+        if(ds===a.today_str)h+='<div class="today-num"><span class="today-circle">'+d+'</span></div>';
+        else h+='<div class="day-num" style="color:'+dc+'">'+d+'</div>';
+        var evs=a.day_evs[String(d)]||[],dm={};
+        for(var ei=0;ei<evs.length;ei++)dm[evs[ei][2]]=evs[ei];
+        for(var si=0;si<slots;si++){
+          var rid2=ro[si];
+          if(rid2 in dm){var ev=dm[rid2],t=ev[0],c=ev[1],st2=t.length>5?t.slice(0,5)+'\\u2026':t;
+            h+='<div class="ev-chip" data-row="'+rid2+'" style="background:'+c+'" title="'+esc(t)+'">'+esc(st2)+'</div>'}
+          else h+='<div class="ev-empty"></div>';
+        }
+      }
+      h+='</td>';
+    }
+    h+='</tr>';
+  }
+  h+='</tbody></table></div>';
+  document.getElementById('root').innerHTML=h;
+  document.querySelectorAll('.ev-chip').forEach(function(c){c.addEventListener('click',function(){sendValue(parseInt(this.getAttribute('data-row')))})});
+  setTimeout(function(){window.parent.postMessage({type:"streamlit:setFrameHeight",height:document.body.scrollHeight+10},"*")},30);
+}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+</script></body></html>"""
+with open(_CAL_COMP_INDEX, "w", encoding="utf-8") as _f:
+    _f.write(_CAL_HTML_SRC)
+_cal_component = _components.declare_component("sec_cal_component", path=_CAL_COMP_DIR)
 
 # ──────────────────────────────────────────────
 # 탭 레이아웃
