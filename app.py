@@ -1737,10 +1737,24 @@ with tab3:
         with _nc3:
             if _cv == "월":
                 _yr, _mo = st.session_state["cal_year"], st.session_state["cal_month"]
-                st.markdown(f'<div style="text-align:center;font-size:14px;font-weight:700;color:#7c3aed;padding-top:6px">{_yr}년 {_mo}월</div>', unsafe_allow_html=True)
+                with st.popover(f"📅 {_yr}년 {_mo}월", use_container_width=True):
+                    _py = st.number_input("년도", min_value=2020, max_value=2035,
+                                          value=_yr, step=1, key="cal_pop_year")
+                    _pm = st.selectbox("월", list(range(1,13)),
+                                       index=_mo-1, key="cal_pop_month",
+                                       format_func=lambda x: f"{x}월")
+                    if st.button("이동", key="cal_pop_go", type="primary", use_container_width=True):
+                        st.session_state["cal_year"] = int(_py)
+                        st.session_state["cal_month"] = int(_pm)
+                        st.rerun()
             else:
                 _ws2 = st.session_state["cal_week_start"]
-                st.markdown(f'<div style="text-align:center;font-size:13px;font-weight:700;color:#7c3aed;padding-top:6px">{_ws2.strftime("%m.%d")} ~ {(_ws2+datetime.timedelta(days=6)).strftime("%m.%d")}</div>', unsafe_allow_html=True)
+                with st.popover(f"📅 {_ws2.strftime('%m.%d')} ~ {(_ws2+datetime.timedelta(days=6)).strftime('%m.%d')}", use_container_width=True):
+                    _pd = st.date_input("이동할 주의 날짜 선택", value=_ws2, key="cal_pop_week_date")
+                    if st.button("이동", key="cal_pop_week_go", type="primary", use_container_width=True):
+                        _pd_date = _pd if isinstance(_pd, datetime.date) else _ws2
+                        st.session_state["cal_week_start"] = _pd_date - datetime.timedelta(days=_pd_date.weekday())
+                        st.rerun()
         with _nc4:
             if st.button("📅 월간", key="cal_btn_month", use_container_width=True,
                          type="primary" if _cv == "월" else "secondary"):
