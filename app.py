@@ -1905,13 +1905,10 @@ document.querySelectorAll('.ev-chip').forEach(function(c){{
                     if _es and _ee and _es <= _we3 and _ee >= _ws3:
                         _wevs.append({
                             "title": str(_er["제목"]), "color": _cmap.get(str(_er["제목"]), "#a855f7"),
-                            "sc": (_es if _es >= _ws3 else _ws3 - _ws3).days if _es >= _ws3 else 0,
-                            "ec": ((_ee if _ee <= _we3 else _we3) - _ws3).days,
+                            "sc": (max(_es, _ws3) - _ws3).days,
+                            "ec": (min(_ee, _we3) - _ws3).days,
                             "row_id": int(_er["_row"]), "er": _er,
                         })
-                    if _es and _ee and _es <= _we3 and _ee >= _ws3:
-                        _wevs[-1]["sc"] = (max(_es, _ws3) - _ws3).days
-                        _wevs[-1]["ec"] = (min(_ee, _we3) - _ws3).days
 
             _dlabels = ["월","화","수","목","금","토","일"]
             st.markdown('<div style="background:white;border-radius:18px;padding:14px 10px;box-shadow:0 2px 12px rgba(0,0,0,0.07);margin-top:6px">', unsafe_allow_html=True)
