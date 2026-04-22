@@ -1824,72 +1824,75 @@ with tab3:
                         if _es <= _dd2 <= _ee:
                             _day_evs.setdefault(_d, []).append([str(_er["제목"]), _ec, _rid])
 
-            # ── st.components.v1.html 로 HTML 테이블 달력 렌더 ──
-            # 슬롯 기반 정렬을 Python에서 미리 계산
+            # ── 월간 달력: st.columns(7) + st.button + CSS :has() 컬러링 ──
             _dn = ["월","화","수","목","금","토","일"]
-            _tbl = '<table style="width:100%;border-collapse:collapse;table-layout:fixed;font-family:Pretendard,sans-serif"><thead><tr>'
-            for _di2, _dn2 in enumerate(_dn):
-                _dc2 = "#ef4444" if _di2==6 else ("#3b82f6" if _di2==5 else "#6b7280")
-                _tbl += f'<th style="text-align:center;padding:6px 0 8px;font-size:11px;font-weight:700;color:{_dc2};border-bottom:2px solid #f3f4f6;width:14.28%">{_dn2}</th>'
-            _tbl += '</tr></thead><tbody>'
 
+            # 이벤트 버튼 컬러 CSS (sentinel span → 인접 버튼)
+            _chip_css = "<style>"
+            for _cd, _cevlist in _day_evs.items():
+                for _cet, _cec, _crid in _cevlist:
+                    _chip_css += (
+                        f'[data-testid="stMarkdownContainer"]:has(.cm-{_crid}-{_cd})'
+                        f'+[data-testid="stButton"] button{{'
+                        f'background:{_cec}!important;color:white!important;'
+                        f'font-size:8px!important;padding:0 4px!important;'
+                        f'min-height:0!important;height:18px!important;line-height:18px!important;'
+                        f'border-radius:3px!important;border:none!important;'
+                        f'white-space:nowrap!important;overflow:hidden!important;'
+                        f'display:block!important;width:100%!important;text-align:left!important;}}'
+                    )
+            _chip_css += "</style>"
+            st.markdown(_chip_css, unsafe_allow_html=True)
+
+            # 캘린더 카드 wrapper
+            st.markdown('<div style="background:white;border-radius:18px;padding:12px 6px 8px;box-shadow:0 2px 12px rgba(0,0,0,0.07);margin-top:6px">', unsafe_allow_html=True)
+
+            # 요일 헤더
+            _hcols = st.columns(7)
+            for _hi, (_hc, _hname) in enumerate(zip(_hcols, _dn)):
+                _hcolor = "#ef4444" if _hi==6 else ("#3b82f6" if _hi==5 else "#6b7280")
+                _hc.markdown(f'<div style="text-align:center;padding:4px 0 6px;font-size:11px;font-weight:700;color:{_hcolor};border-bottom:2px solid #f3f4f6">{_hname}</div>', unsafe_allow_html=True)
+
+            # 주 행
             for _week in _mcal:
-                # 이번 주 슬롯 배정 (등장 순서)
+                # 슬롯 배정
                 _ro, _rs = [], {}
                 for _wd in _week:
                     if not _wd: continue
                     for _et2, _ec2, _rid2 in _day_evs.get(_wd, []):
                         if _rid2 not in _rs:
                             _rs[_rid2] = len(_ro); _ro.append((_rid2, _ec2))
-                _slots = len(_ro)
 
-                _tbl += '<tr>'
-                for _wi2, _wd in enumerate(_week):
-                    _dc2 = "#ef4444" if _wi2==6 else ("#3b82f6" if _wi2==5 else "#374151")
-                    _tbl += '<td style="vertical-align:top;padding:4px 3px;border-top:1px solid #f3f4f6">'
-                    if not _wd:
-                        _tbl += '&nbsp;'
-                    else:
+                _wcols = st.columns(7)
+                for _wi, (_wc, _wd) in enumerate(zip(_wcols, _week)):
+                    _dcolor = "#ef4444" if _wi==6 else ("#3b82f6" if _wi==5 else "#374151")
+                    with _wc:
+                        if not _wd:
+                            st.markdown('<div style="min-height:50px;border-top:1px solid #f3f4f6"></div>', unsafe_allow_html=True)
+                            continue
                         _dd2 = datetime.date(_yr, _mo, _wd)
                         if _dd2 == today:
-                            _tbl += f'<div style="text-align:center;margin-bottom:2px"><span style="background:linear-gradient(135deg,#a855f7,#7c3aed);color:white;border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700">{_wd}</span></div>'
+                            st.markdown(f'<div style="text-align:center;padding:3px 0;border-top:1px solid #f3f4f6"><span style="background:linear-gradient(135deg,#a855f7,#7c3aed);color:white;border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700">{_wd}</span></div>', unsafe_allow_html=True)
                         else:
-                            _tbl += f'<div style="text-align:center;font-size:11px;font-weight:600;color:{_dc2};margin-bottom:2px">{_wd}</div>'
-                        # 슬롯 순서대로 이벤트/빈칸 렌더
-                        _day_map2 = {r: (e, c) for e, c, r in _day_evs.get(_wd, [])}
-                        for _si, (_rid3, _ec3) in enumerate(_ro):
-                            if _rid3 in _day_map2:
-                                _et3, _ = _day_map2[_rid3]
-                                _sh3 = html_lib.escape((_et3[:5]+"…") if len(_et3)>5 else _et3)
-                                _tbl += (f'<div class="ev-chip" data-row="{_rid3}" '
-                                         f'style="display:block;background:{_ec3};color:white;font-size:9px;'
-                                         f'padding:1px 5px;border-radius:3px;margin:1px 0;overflow:hidden;'
-                                         f'white-space:nowrap;line-height:1.7;cursor:pointer;user-select:none" '
-                                         f'title="{html_lib.escape(_et3)}">{_sh3}</div>')
-                            else:
-                                _tbl += '<div style="height:18px;margin:1px 0"></div>'
-                    _tbl += '</td>'
-                _tbl += '</tr>'
-            _tbl += '</tbody></table>'
+                            st.markdown(f'<div style="text-align:center;padding:3px 0;font-size:11px;font-weight:600;color:{_dcolor};border-top:1px solid #f3f4f6">{_wd}</div>', unsafe_allow_html=True)
 
-            _cal_h2 = len(_mcal) * 76 + 60
-            _comp_html2 = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
-<style>
-body{{margin:0;padding:0;background:transparent;font-family:Pretendard,sans-serif}}
-.cal-wrap{{background:white;border-radius:18px;padding:14px 8px 10px;box-shadow:0 2px 12px rgba(0,0,0,.07)}}
-.ev-chip:hover{{opacity:.82}}
-</style></head><body>
-<div class="cal-wrap">{_tbl}</div>
-<script>
-document.querySelectorAll('.ev-chip').forEach(function(c){{
-  c.addEventListener('click',function(){{
-    var rid=this.getAttribute('data-row');
-    window.parent.location.href=window.parent.location.pathname+'?edit_row='+rid;
-  }});
-}});
-</script>
-</body></html>"""
-            _components.html(_comp_html2, height=_cal_h2, scrolling=False)
+                        _day_map2 = {r: (e, c) for e, c, r in _day_evs.get(_wd, [])}
+                        for _rid3, _ec3 in _ro:
+                            if _rid3 in _day_map2:
+                                _et3 = _day_map2[_rid3][0]
+                                _sh3 = (_et3[:5]+"…") if len(_et3)>5 else _et3
+                                # sentinel → CSS가 다음 버튼에 컬러 적용
+                                st.markdown(f'<span class="cm-{_rid3}-{_wd}" style="display:none"></span>', unsafe_allow_html=True)
+                                if st.button(_sh3, key=f"cev_{_rid3}_{_wd}", use_container_width=True, help=_et3):
+                                    st.session_state.editing_schedule = {
+                                        "row": _rid3, "날짜": str(sch_df_main[sch_df_main["_row"]==_rid3].iloc[0]["날짜"]),
+                                        "제목": _et3, "메모": str(sch_df_main[sch_df_main["_row"]==_rid3].iloc[0]["메모"]),
+                                    }
+                                    st.rerun()
+                            else:
+                                st.markdown('<div style="height:20px"></div>', unsafe_allow_html=True)
+
+            st.markdown('</div>', unsafe_allow_html=True)
 
         else:
             # ── 주간 Gantt (이벤트 제목 클릭 가능) ──
@@ -1911,21 +1914,27 @@ document.querySelectorAll('.ev-chip').forEach(function(c){{
                         })
 
             _dlabels = ["월","화","수","목","금","토","일"]
-            st.markdown('<div style="background:white;border-radius:18px;padding:14px 10px;box-shadow:0 2px 12px rgba(0,0,0,0.07);margin-top:6px">', unsafe_allow_html=True)
+            st.markdown('<div style="background:white;border-radius:18px;padding:14px 10px 10px;box-shadow:0 2px 12px rgba(0,0,0,0.07);margin-top:6px">', unsafe_allow_html=True)
             # 헤더
             _wh = st.columns([1.8, 1, 1, 1, 1, 1, 1, 1])
-            _wh[0].markdown('<div style="font-size:10px;color:#9ca3af;font-weight:600;border-bottom:2px solid #e9d5ff;padding:5px 4px">일정</div>', unsafe_allow_html=True)
+            _wh[0].markdown('<div style="font-size:10px;color:#9ca3af;font-weight:600;border-bottom:2px solid #e9d5ff;padding:5px 4px 6px">일정명</div>', unsafe_allow_html=True)
             for _gi, (_gd, _gn) in enumerate(zip(_wdts, _dlabels)):
                 _gc = "#ef4444" if _gi==6 else ("#3b82f6" if _gi==5 else "#374151")
-                _bg = "background:#7c3aed;color:white;border-radius:6px;" if _gd==today else f"color:{_gc};"
-                _wh[_gi+1].markdown(f'<div style="text-align:center;font-size:10px;font-weight:600;border-bottom:2px solid #e9d5ff;padding:3px 1px;{_bg}">{_gn}<br>{_gd.day}</div>', unsafe_allow_html=True)
+                _is_today_col = (_gd == today)
+                _bg = "background:linear-gradient(135deg,#a855f7,#7c3aed);color:white;border-radius:6px;" if _is_today_col else f"color:{_gc};"
+                _wh[_gi+1].markdown(
+                    f'<div style="text-align:center;font-size:10px;font-weight:700;'
+                    f'border-bottom:2px solid #e9d5ff;padding:3px 2px 6px;{_bg}">'
+                    f'{_gn}<br><span style="font-size:12px">{_gd.day}</span></div>',
+                    unsafe_allow_html=True
+                )
             # 이벤트 행
             if not _wevs:
                 st.markdown('<div style="text-align:center;padding:20px;font-size:12px;color:#9ca3af">이번 주 일정이 없어요</div>', unsafe_allow_html=True)
             for _ev in _wevs:
                 _wr = st.columns([1.8, 1, 1, 1, 1, 1, 1, 1])
                 with _wr[0]:
-                    _wshort = (_ev["title"][:10] + "…") if len(_ev["title"]) > 10 else _ev["title"]
+                    _wshort = (_ev["title"][:12] + "…") if len(_ev["title"]) > 12 else _ev["title"]
                     if st.button(_wshort, key=f"wev_{_ev['row_id']}", use_container_width=True, help=_ev["title"]):
                         st.session_state.editing_schedule = {
                             "row": _ev["row_id"], "날짜": str(_ev["er"]["날짜"]),
@@ -1933,12 +1942,28 @@ document.querySelectorAll('.ev-chip').forEach(function(c){{
                         }
                         st.rerun()
                 for _ci in range(7):
+                    _cell_date = _wdts[_ci]
+                    _is_today_cell = (_cell_date == today)
+                    _bg_cell = "rgba(168,85,247,0.06)" if _is_today_cell else "transparent"
+                    _border_l = "border-left:2px solid #e9d5ff;" if _ci > 0 else ""
                     if _ev["sc"] <= _ci <= _ev["ec"]:
                         _is_s = _ci == _ev["sc"]; _is_e = _ci == _ev["ec"]
                         _r = "8px" if (_is_s and _is_e) else ("8px 0 0 8px" if _is_s else ("0 8px 8px 0" if _is_e else "0"))
-                        _wr[_ci+1].markdown(f'<div style="background:{_ev["color"]};height:22px;border-radius:{_r};margin:4px 1px;opacity:0.85"></div>', unsafe_allow_html=True)
+                        _title_in_bar = html_lib.escape(_ev["title"][:10]) if _is_s else ""
+                        _wr[_ci+1].markdown(
+                            f'<div style="background:{_bg_cell};padding:3px 1px;{_border_l}">'
+                            f'<div style="background:{_ev["color"]};height:24px;border-radius:{_r};'
+                            f'margin:0;opacity:0.9;display:flex;align-items:center;padding:0 5px;'
+                            f'overflow:hidden;white-space:nowrap">'
+                            f'<span style="font-size:8px;color:white;font-weight:600">{_title_in_bar}</span>'
+                            f'</div></div>',
+                            unsafe_allow_html=True
+                        )
                     else:
-                        _wr[_ci+1].markdown('<div style="height:22px;margin:4px 1px"></div>', unsafe_allow_html=True)
+                        _wr[_ci+1].markdown(
+                            f'<div style="background:{_bg_cell};padding:3px 1px;{_border_l};height:30px"></div>',
+                            unsafe_allow_html=True
+                        )
             st.markdown('</div>', unsafe_allow_html=True)
 
         st.markdown('<div class="sec-divider"></div>', unsafe_allow_html=True)
