@@ -1714,9 +1714,9 @@ with tab3:
                 _cmap[str(_crow["제목"])] = _CAL_COLORS[_ci % len(_CAL_COLORS)]
 
         _cv = st.session_state["cal_view"]
-        _nav_l, _nav_title, _nav_r, _nav_toggle = st.columns([0.45, 2.3, 0.45, 2])
+        _nc1, _nc2, _nc3, _nc4, _nc5 = st.columns([0.5, 0.5, 2.2, 1, 1])
 
-        with _nav_l:
+        with _nc1:
             if st.button("◀", key="cal_nav_prev", use_container_width=True):
                 if _cv == "월":
                     _m, _y = st.session_state["cal_month"], st.session_state["cal_year"]
@@ -1725,7 +1725,7 @@ with tab3:
                 else:
                     st.session_state["cal_week_start"] -= datetime.timedelta(weeks=1)
                 st.rerun()
-        with _nav_r:
+        with _nc2:
             if st.button("▶", key="cal_nav_next", use_container_width=True):
                 if _cv == "월":
                     _m, _y = st.session_state["cal_month"], st.session_state["cal_year"]
@@ -1734,23 +1734,21 @@ with tab3:
                 else:
                     st.session_state["cal_week_start"] += datetime.timedelta(weeks=1)
                 st.rerun()
-        with _nav_toggle:
-            _tb1, _tb2 = st.columns(2)
-            with _tb1:
-                if st.button("📅 월간", key="cal_btn_month", use_container_width=True,
-                             type="primary" if _cv == "월" else "secondary"):
-                    st.session_state["cal_view"] = "월"; st.rerun()
-            with _tb2:
-                if st.button("📊 주간", key="cal_btn_week", use_container_width=True,
-                             type="primary" if _cv == "주" else "secondary"):
-                    st.session_state["cal_view"] = "주"; st.rerun()
-        with _nav_title:
+        with _nc3:
             if _cv == "월":
                 _yr, _mo = st.session_state["cal_year"], st.session_state["cal_month"]
                 st.markdown(f'<div style="text-align:center;font-size:14px;font-weight:700;color:#7c3aed;padding-top:6px">{_yr}년 {_mo}월</div>', unsafe_allow_html=True)
             else:
                 _ws2 = st.session_state["cal_week_start"]
                 st.markdown(f'<div style="text-align:center;font-size:13px;font-weight:700;color:#7c3aed;padding-top:6px">{_ws2.strftime("%m.%d")} ~ {(_ws2+datetime.timedelta(days=6)).strftime("%m.%d")}</div>', unsafe_allow_html=True)
+        with _nc4:
+            if st.button("📅 월간", key="cal_btn_month", use_container_width=True,
+                         type="primary" if _cv == "월" else "secondary"):
+                st.session_state["cal_view"] = "월"; st.rerun()
+        with _nc5:
+            if st.button("📊 주간", key="cal_btn_week", use_container_width=True,
+                         type="primary" if _cv == "주" else "secondary"):
+                st.session_state["cal_view"] = "주"; st.rerun()
 
         if _cv == "월":
             _yr, _mo = st.session_state["cal_year"], st.session_state["cal_month"]
