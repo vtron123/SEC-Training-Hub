@@ -1713,8 +1713,8 @@ with tab3:
             for _ci, (_, _crow) in enumerate(sch_df_main.iterrows()):
                 _cmap[str(_crow["제목"])] = _CAL_COLORS[_ci % len(_CAL_COLORS)]
 
-        _cv = st.session_state["cal_view"]
-        _nc1, _nc2, _nc3, _nc4, _nc5 = st.columns([0.5, 0.5, 2.2, 1, 1])
+        _cv  = st.session_state["cal_view"]
+        _nc1, _nc2, _nc3, _nc4, _nc5, _nc6 = st.columns([0.4, 0.9, 0.8, 0.4, 1.0, 1.0])
 
         with _nc1:
             if st.button("◀", key="cal_nav_prev", use_container_width=True):
@@ -1725,7 +1725,36 @@ with tab3:
                 else:
                     st.session_state["cal_week_start"] -= datetime.timedelta(weeks=1)
                 st.rerun()
-        with _nc2:
+
+        if _cv == "월":
+            _yr = st.session_state["cal_year"]
+            _mo = st.session_state["cal_month"]
+            with _nc2:
+                _sel_yr = st.selectbox("년", list(range(2020, 2036)),
+                                       index=_yr - 2020, label_visibility="collapsed",
+                                       format_func=lambda x: f"{x}년")
+            with _nc3:
+                _sel_mo = st.selectbox("월", list(range(1, 13)),
+                                       index=_mo - 1, label_visibility="collapsed",
+                                       format_func=lambda x: f"{x}월")
+            if _sel_yr != _yr or _sel_mo != _mo:
+                st.session_state["cal_year"]  = _sel_yr
+                st.session_state["cal_month"] = _sel_mo
+                st.rerun()
+        else:
+            _ws2 = st.session_state["cal_week_start"]
+            with _nc2:
+                _sel_date = st.date_input("날짜", value=_ws2, label_visibility="collapsed")
+            with _nc3:
+                _we_txt = (_ws2 + datetime.timedelta(days=6)).strftime("%m.%d")
+                st.markdown(f'<div style="padding-top:7px;font-size:12px;color:#7c3aed;font-weight:600">~ {_we_txt}</div>', unsafe_allow_html=True)
+            if isinstance(_sel_date, datetime.date):
+                _new_ws = _sel_date - datetime.timedelta(days=_sel_date.weekday())
+                if _new_ws != _ws2:
+                    st.session_state["cal_week_start"] = _new_ws
+                    st.rerun()
+
+        with _nc4:
             if st.button("▶", key="cal_nav_next", use_container_width=True):
                 if _cv == "월":
                     _m, _y = st.session_state["cal_month"], st.session_state["cal_year"]
@@ -1734,32 +1763,11 @@ with tab3:
                 else:
                     st.session_state["cal_week_start"] += datetime.timedelta(weeks=1)
                 st.rerun()
-        with _nc3:
-            if _cv == "월":
-                _yr, _mo = st.session_state["cal_year"], st.session_state["cal_month"]
-                with st.popover(f"📅 {_yr}년 {_mo}월", use_container_width=True):
-                    _py = st.number_input("년도", min_value=2020, max_value=2035,
-                                          value=_yr, step=1, key="cal_pop_year")
-                    _pm = st.selectbox("월", list(range(1,13)),
-                                       index=_mo-1, key="cal_pop_month",
-                                       format_func=lambda x: f"{x}월")
-                    if st.button("이동", key="cal_pop_go", type="primary", use_container_width=True):
-                        st.session_state["cal_year"] = int(_py)
-                        st.session_state["cal_month"] = int(_pm)
-                        st.rerun()
-            else:
-                _ws2 = st.session_state["cal_week_start"]
-                with st.popover(f"📅 {_ws2.strftime('%m.%d')} ~ {(_ws2+datetime.timedelta(days=6)).strftime('%m.%d')}", use_container_width=True):
-                    _pd = st.date_input("이동할 주의 날짜 선택", value=_ws2, key="cal_pop_week_date")
-                    if st.button("이동", key="cal_pop_week_go", type="primary", use_container_width=True):
-                        _pd_date = _pd if isinstance(_pd, datetime.date) else _ws2
-                        st.session_state["cal_week_start"] = _pd_date - datetime.timedelta(days=_pd_date.weekday())
-                        st.rerun()
-        with _nc4:
+        with _nc5:
             if st.button("📅 월간", key="cal_btn_month", use_container_width=True,
                          type="primary" if _cv == "월" else "secondary"):
                 st.session_state["cal_view"] = "월"; st.rerun()
-        with _nc5:
+        with _nc6:
             if st.button("📊 주간", key="cal_btn_week", use_container_width=True,
                          type="primary" if _cv == "주" else "secondary"):
                 st.session_state["cal_view"] = "주"; st.rerun()
@@ -1850,6 +1858,45 @@ with tab3:
                 _gh += '</tr>'
             _gh += '</tbody></table></div>'
             st.markdown(_gh, unsafe_allow_html=True)
+
+        # ── 이번 달/주 일정 클릭 버튼 ──
+        if not sch_df_main.empty:
+            if _cv == "월":
+                _yr2, _mo2 = st.session_state["cal_year"], st.session_state["cal_month"]
+                _rng_s = datetime.date(_yr2, _mo2, 1)
+                _rng_e = datetime.date(_yr2, _mo2, _cal_mod.monthrange(_yr2, _mo2)[1])
+                _ev_label = f"{_yr2}년 {_mo2}월"
+            else:
+                _rng_s = st.session_state["cal_week_start"]
+                _rng_e = _rng_s + datetime.timedelta(days=6)
+                _ev_label = f"{_rng_s.strftime('%m.%d')} ~ {_rng_e.strftime('%m.%d')}"
+
+            _period_evs = []
+            for _, _er in sch_df_main.iterrows():
+                _es2 = _parse_start_date(_er["날짜"])
+                _ee2 = _parse_end_date(_er["날짜"])
+                if _es2 and _ee2 and _es2 <= _rng_e and _ee2 >= _rng_s:
+                    _period_evs.append(_er)
+
+            if _period_evs:
+                st.markdown(
+                    f'<div style="font-size:11px;color:#9ca3af;font-weight:600;margin-top:8px;margin-bottom:4px">'
+                    f'📌 {_ev_label} 일정 — 클릭하여 수정</div>',
+                    unsafe_allow_html=True
+                )
+                for _per_ev in _period_evs:
+                    _ec3   = _cmap.get(str(_per_ev["제목"]), "#a855f7")
+                    _done3 = _per_ev["완료"] == "✅"
+                    _ev_btn_label = f"{'✅ ' if _done3 else '📌 '}{_per_ev['날짜']}  {_per_ev['제목']}"
+                    if st.button(_ev_btn_label, key=f"cal_ev_{_per_ev['_row']}",
+                                 use_container_width=True):
+                        st.session_state.editing_schedule = {
+                            "row": int(_per_ev["_row"]),
+                            "날짜": str(_per_ev["날짜"]),
+                            "제목": str(_per_ev["제목"]),
+                            "메모": str(_per_ev["메모"]),
+                        }
+                        st.rerun()
 
         st.markdown('<div class="sec-divider"></div>', unsafe_allow_html=True)
 
