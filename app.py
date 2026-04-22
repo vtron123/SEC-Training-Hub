@@ -1513,6 +1513,25 @@ def _parse_end_date(date_str: str) -> datetime.date | None:
         return None
 
 with tab3:
+    # ── 캘린더 이벤트 클릭 → 쿼리 파라미터로 수정 폼 트리거 ──
+    _eq_param = st.query_params.get("edit_row")
+    if _eq_param:
+        try:
+            _eq_id = int(_eq_param)
+            _eq_df = load_schedules()
+            if not _eq_df.empty:
+                _eq_rows = _eq_df[_eq_df["_row"] == _eq_id]
+                if not _eq_rows.empty:
+                    _eq_r = _eq_rows.iloc[0]
+                    st.session_state.editing_schedule = {
+                        "row": _eq_id, "날짜": str(_eq_r["날짜"]),
+                        "제목": str(_eq_r["제목"]), "메모": str(_eq_r["메모"]),
+                    }
+        except Exception:
+            pass
+        st.query_params.clear()
+        st.rerun()
+
     col_sch_side, col_sch_main = st.columns([1, 2.4], gap="large")
 
     # ── 왼쪽: 입력 & 목록 ──
@@ -1790,55 +1809,64 @@ with tab3:
                     for _d in range(1, _cal_mod.monthrange(_yr, _mo)[1] + 1):
                         _dd2 = datetime.date(_yr, _mo, _d)
                         if _es <= _dd2 <= _ee:
-                            _day_evs.setdefault(_d, []).append((str(_er["제목"]), _ec, _rid, _er))
+                            _day_evs.setdefault(_d, []).append((str(_er["제목"]), _ec, _rid))
 
-            # 이벤트 버튼 CSS (sentinel 다음 버튼에 컬러 적용)
-            _ev_css = "<style>"
-            for _d, _devs in _day_evs.items():
-                for _et, _ec, _rid, _ in _devs:
-                    _ev_css += (
-                        f'[data-testid="stMarkdownContainer"]:has(.cev-{_rid}-{_d})'
-                        f' + [data-testid="stButton"] button {{'
-                        f'background:{_ec}!important;color:white!important;border:none!important;'
-                        f'font-size:8px!important;padding:1px 4px!important;'
-                        f'min-height:16px!important;height:16px!important;'
-                        f'border-radius:3px!important;line-height:1!important;'
-                        f'white-space:nowrap!important;overflow:hidden!important;}}'
-                    )
-            _ev_css += "</style>"
-            st.markdown(_ev_css, unsafe_allow_html=True)
-
-            st.markdown('<div style="background:white;border-radius:18px;padding:14px 8px 10px;box-shadow:0 2px 12px rgba(0,0,0,0.07);margin-top:6px">', unsafe_allow_html=True)
-            # 요일 헤더
-            _hcols = st.columns(7)
-            for _di, (_hc, _dname) in enumerate(zip(_hcols, _dn)):
+            # ── HTML 테이블 달력 ──
+            _cal_html = (
+                '<div style="background:white;border-radius:18px;padding:14px 8px 10px;'
+                'box-shadow:0 2px 12px rgba(0,0,0,0.07);margin-top:6px;overflow:hidden">'
+                '<table style="width:100%;border-collapse:collapse;table-layout:fixed">'
+                '<thead><tr>'
+            )
+            for _di, _dname in enumerate(_dn):
                 _dc = "#ef4444" if _di==6 else ("#3b82f6" if _di==5 else "#6b7280")
-                _hc.markdown(f'<div style="text-align:center;padding:4px 0;font-size:11px;font-weight:700;color:{_dc};border-bottom:2px solid #f3f4f6">{_dname}</div>', unsafe_allow_html=True)
-            # 주 행
+                _cal_html += (
+                    f'<th style="text-align:center;padding:6px 0 8px;font-size:11px;'
+                    f'font-weight:700;color:{_dc};border-bottom:2px solid #f3f4f6;width:14.28%">'
+                    f'{_dname}</th>'
+                )
+            _cal_html += '</tr></thead><tbody>'
+
             for _week in _mcal:
-                _wcols = st.columns(7)
-                for _wi, (_wc, _day) in enumerate(zip(_wcols, _week)):
-                    with _wc:
-                        if _day == 0:
-                            st.markdown('<div style="min-height:52px;border-top:1px solid #f3f4f6"></div>', unsafe_allow_html=True)
-                            continue
+                _cal_html += '<tr>'
+                for _wi, _day in enumerate(_week):
+                    _dc = "#ef4444" if _wi==6 else ("#3b82f6" if _wi==5 else "#374151")
+                    _cal_html += (
+                        '<td style="vertical-align:top;padding:4px 3px;'
+                        'border-top:1px solid #f3f4f6;min-height:64px">'
+                    )
+                    if _day == 0:
+                        _cal_html += '&nbsp;'
+                    else:
                         _dd = datetime.date(_yr, _mo, _day)
                         _is_td = (_dd == today)
-                        _dc = "#ef4444" if _wi==6 else ("#3b82f6" if _wi==5 else "#374151")
                         if _is_td:
-                            st.markdown(f'<div style="text-align:center;padding:3px 0;border-top:1px solid #f3f4f6"><div style="background:linear-gradient(135deg,#a855f7,#7c3aed);color:white;border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;margin:0 auto">{_day}</div></div>', unsafe_allow_html=True)
+                            _cal_html += (
+                                f'<div style="text-align:center;margin-bottom:2px">'
+                                f'<span style="background:linear-gradient(135deg,#a855f7,#7c3aed);'
+                                f'color:white;border-radius:50%;width:20px;height:20px;'
+                                f'display:inline-flex;align-items:center;justify-content:center;'
+                                f'font-size:10px;font-weight:700">{_day}</span></div>'
+                            )
                         else:
-                            st.markdown(f'<div style="text-align:center;padding:3px 0;font-size:11px;font-weight:600;color:{_dc};border-top:1px solid #f3f4f6">{_day}</div>', unsafe_allow_html=True)
-                        for _et, _ec, _rid, _er in _day_evs.get(_day, []):
-                            _short = (_et[:4] + "…") if len(_et) > 4 else _et
-                            st.markdown(f'<div class="cev-{_rid}-{_day}"></div>', unsafe_allow_html=True)
-                            if st.button(_short, key=f"ccell_{_rid}_{_day}", use_container_width=True, help=_et):
-                                st.session_state.editing_schedule = {
-                                    "row": _rid, "날짜": str(_er["날짜"]),
-                                    "제목": str(_er["제목"]), "메모": str(_er["메모"]),
-                                }
-                                st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
+                            _cal_html += (
+                                f'<div style="text-align:center;font-size:11px;font-weight:600;'
+                                f'color:{_dc};margin-bottom:2px">{_day}</div>'
+                            )
+                        for _et, _ec, _rid in _day_evs.get(_day, []):
+                            _short = html_lib.escape((_et[:5] + "…") if len(_et) > 5 else _et)
+                            _cal_html += (
+                                f'<a href="?edit_row={_rid}" title="{html_lib.escape(_et)}" '
+                                f'style="display:block;background:{_ec};color:white;font-size:9px;'
+                                f'padding:1px 5px;border-radius:3px;margin:1px 0;'
+                                f'text-decoration:none;overflow:hidden;white-space:nowrap;'
+                                f'line-height:1.7;cursor:pointer">{_short}</a>'
+                            )
+                    _cal_html += '</td>'
+                _cal_html += '</tr>'
+
+            _cal_html += '</tbody></table></div>'
+            st.markdown(_cal_html, unsafe_allow_html=True)
 
         else:
             # ── 주간 Gantt (이벤트 제목 클릭 가능) ──
