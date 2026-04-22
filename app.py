@@ -1776,46 +1776,72 @@ with tab3:
             _yr, _mo = st.session_state["cal_year"], st.session_state["cal_month"]
             _mcal = _cal_mod.monthcalendar(_yr, _mo)
             _dn   = ["월","화","수","목","금","토","일"]
-            _ch = '<div style="background:white;border-radius:18px;padding:14px 10px;box-shadow:0 2px 12px rgba(0,0,0,0.07);margin-top:6px">'
-            _ch += '<table style="width:100%;border-collapse:collapse">'
-            _ch += '<thead><tr>'
-            for _di, _dname in enumerate(_dn):
+
+            # 날짜별 이벤트 사전 수집
+            _day_evs: dict = {}
+            if not sch_df_main.empty:
+                for _, _er in sch_df_main.iterrows():
+                    if _er["완료"] == "✅": continue
+                    _es = _parse_start_date(_er["날짜"])
+                    _ee = _parse_end_date(_er["날짜"])
+                    if not (_es and _ee): continue
+                    _rid = int(_er["_row"])
+                    _ec  = _cmap.get(str(_er["제목"]), "#a855f7")
+                    for _d in range(1, _cal_mod.monthrange(_yr, _mo)[1] + 1):
+                        _dd2 = datetime.date(_yr, _mo, _d)
+                        if _es <= _dd2 <= _ee:
+                            _day_evs.setdefault(_d, []).append((str(_er["제목"]), _ec, _rid, _er))
+
+            # 이벤트 버튼 CSS (sentinel 다음 버튼에 컬러 적용)
+            _ev_css = "<style>"
+            for _d, _devs in _day_evs.items():
+                for _et, _ec, _rid, _ in _devs:
+                    _ev_css += (
+                        f'[data-testid="stMarkdownContainer"]:has(.cev-{_rid}-{_d})'
+                        f' + [data-testid="stButton"] button {{'
+                        f'background:{_ec}!important;color:white!important;border:none!important;'
+                        f'font-size:8px!important;padding:1px 4px!important;'
+                        f'min-height:16px!important;height:16px!important;'
+                        f'border-radius:3px!important;line-height:1!important;'
+                        f'white-space:nowrap!important;overflow:hidden!important;}}'
+                    )
+            _ev_css += "</style>"
+            st.markdown(_ev_css, unsafe_allow_html=True)
+
+            st.markdown('<div style="background:white;border-radius:18px;padding:14px 8px 10px;box-shadow:0 2px 12px rgba(0,0,0,0.07);margin-top:6px">', unsafe_allow_html=True)
+            # 요일 헤더
+            _hcols = st.columns(7)
+            for _di, (_hc, _dname) in enumerate(zip(_hcols, _dn)):
                 _dc = "#ef4444" if _di==6 else ("#3b82f6" if _di==5 else "#6b7280")
-                _ch += f'<th style="text-align:center;padding:6px 2px;font-size:11px;font-weight:700;color:{_dc}">{_dname}</th>'
-            _ch += '</tr></thead><tbody>'
+                _hc.markdown(f'<div style="text-align:center;padding:4px 0;font-size:11px;font-weight:700;color:{_dc};border-bottom:2px solid #f3f4f6">{_dname}</div>', unsafe_allow_html=True)
+            # 주 행
             for _week in _mcal:
-                _ch += '<tr>'
-                for _wi, _day in enumerate(_week):
-                    if _day == 0:
-                        _ch += '<td style="padding:2px;height:58px;border-top:1px solid #f3f4f6"></td>'
-                        continue
-                    _dd = datetime.date(_yr, _mo, _day)
-                    _is_td = (_dd == today)
-                    _dc = "#ef4444" if _wi==6 else ("#3b82f6" if _wi==5 else "#374151")
-                    if _is_td:
-                        _num = f'<div style="background:linear-gradient(135deg,#a855f7,#7c3aed);color:white;border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;margin:0 auto">{_day}</div>'
-                    else:
-                        _num = f'<span style="font-size:12px;font-weight:600;color:{_dc}">{_day}</span>'
-                    _evs = []
-                    if not sch_df_main.empty:
-                        for _, _er in sch_df_main.iterrows():
-                            if _er["완료"] == "✅": continue
-                            _es = _parse_start_date(_er["날짜"])
-                            _ee = _parse_end_date(_er["날짜"])
-                            if _es and _ee and _es <= _dd <= _ee:
-                                _evs.append((str(_er["제목"]), _cmap.get(str(_er["제목"]), "#a855f7")))
-                    _ev_html = ""
-                    for _et, _ec in _evs[:2]:
-                        _short = _et[:5] + ("…" if len(_et)>5 else "")
-                        _ev_html += f'<div style="background:{_ec};color:white;font-size:8px;font-weight:600;border-radius:3px;padding:1px 3px;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{html_lib.escape(_short)}</div>'
-                    if len(_evs) > 2:
-                        _ev_html += f'<div style="font-size:8px;color:#9ca3af">+{len(_evs)-2}</div>'
-                    _ch += f'<td style="padding:3px 2px;height:58px;vertical-align:top;border-top:1px solid #f3f4f6;text-align:center">{_num}{_ev_html}</td>'
-                _ch += '</tr>'
-            _ch += '</tbody></table></div>'
-            st.markdown(_ch, unsafe_allow_html=True)
+                _wcols = st.columns(7)
+                for _wi, (_wc, _day) in enumerate(zip(_wcols, _week)):
+                    with _wc:
+                        if _day == 0:
+                            st.markdown('<div style="min-height:52px;border-top:1px solid #f3f4f6"></div>', unsafe_allow_html=True)
+                            continue
+                        _dd = datetime.date(_yr, _mo, _day)
+                        _is_td = (_dd == today)
+                        _dc = "#ef4444" if _wi==6 else ("#3b82f6" if _wi==5 else "#374151")
+                        if _is_td:
+                            st.markdown(f'<div style="text-align:center;padding:3px 0;border-top:1px solid #f3f4f6"><div style="background:linear-gradient(135deg,#a855f7,#7c3aed);color:white;border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;margin:0 auto">{_day}</div></div>', unsafe_allow_html=True)
+                        else:
+                            st.markdown(f'<div style="text-align:center;padding:3px 0;font-size:11px;font-weight:600;color:{_dc};border-top:1px solid #f3f4f6">{_day}</div>', unsafe_allow_html=True)
+                        for _et, _ec, _rid, _er in _day_evs.get(_day, []):
+                            _short = (_et[:4] + "…") if len(_et) > 4 else _et
+                            st.markdown(f'<div class="cev-{_rid}-{_day}"></div>', unsafe_allow_html=True)
+                            if st.button(_short, key=f"ccell_{_rid}_{_day}", use_container_width=True, help=_et):
+                                st.session_state.editing_schedule = {
+                                    "row": _rid, "날짜": str(_er["날짜"]),
+                                    "제목": str(_er["제목"]), "메모": str(_er["메모"]),
+                                }
+                                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
 
         else:
+            # ── 주간 Gantt (이벤트 제목 클릭 가능) ──
             _ws3  = st.session_state["cal_week_start"]
             _we3  = _ws3 + datetime.timedelta(days=6)
             _wdts = [_ws3 + datetime.timedelta(days=i) for i in range(7)]
@@ -1826,77 +1852,46 @@ with tab3:
                     _es = _parse_start_date(_er["날짜"])
                     _ee = _parse_end_date(_er["날짜"])
                     if _es and _ee and _es <= _we3 and _ee >= _ws3:
-                        _wevs.append({"title": str(_er["제목"]),
-                                      "start": max(_es, _ws3), "end": min(_ee, _we3),
-                                      "color": _cmap.get(str(_er["제목"]), "#a855f7")})
+                        _wevs.append({
+                            "title": str(_er["제목"]), "color": _cmap.get(str(_er["제목"]), "#a855f7"),
+                            "sc": (_es if _es >= _ws3 else _ws3 - _ws3).days if _es >= _ws3 else 0,
+                            "ec": ((_ee if _ee <= _we3 else _we3) - _ws3).days,
+                            "row_id": int(_er["_row"]), "er": _er,
+                        })
+                    if _es and _ee and _es <= _we3 and _ee >= _ws3:
+                        _wevs[-1]["sc"] = (max(_es, _ws3) - _ws3).days
+                        _wevs[-1]["ec"] = (min(_ee, _we3) - _ws3).days
+
             _dlabels = ["월","화","수","목","금","토","일"]
-            _gh = '<div style="background:white;border-radius:18px;padding:14px 10px;box-shadow:0 2px 12px rgba(0,0,0,0.07);margin-top:6px;overflow-x:auto">'
-            _gh += '<table style="width:100%;border-collapse:collapse;min-width:360px">'
-            _gh += '<thead><tr>'
-            _gh += '<th style="text-align:left;padding:6px 8px;font-size:11px;color:#9ca3af;font-weight:600;border-bottom:2px solid #e9d5ff;min-width:100px">일정</th>'
+            st.markdown('<div style="background:white;border-radius:18px;padding:14px 10px;box-shadow:0 2px 12px rgba(0,0,0,0.07);margin-top:6px">', unsafe_allow_html=True)
+            # 헤더
+            _wh = st.columns([1.8, 1, 1, 1, 1, 1, 1, 1])
+            _wh[0].markdown('<div style="font-size:10px;color:#9ca3af;font-weight:600;border-bottom:2px solid #e9d5ff;padding:5px 4px">일정</div>', unsafe_allow_html=True)
             for _gi, (_gd, _gn) in enumerate(zip(_wdts, _dlabels)):
-                _is_td_g = (_gd == today)
                 _gc = "#ef4444" if _gi==6 else ("#3b82f6" if _gi==5 else "#374151")
-                _th_style = f"background:#7c3aed;color:white;border-radius:6px;padding:4px 2px;" if _is_td_g else f"color:{_gc};padding:4px 2px;"
-                _gh += (f'<th style="text-align:center;font-size:11px;font-weight:600;border-bottom:2px solid #e9d5ff;{_th_style}">'
-                        f'{_gn}<div style="font-size:10px;font-weight:400">{_gd.day}</div></th>')
-            _gh += '</tr></thead><tbody>'
+                _bg = "background:#7c3aed;color:white;border-radius:6px;" if _gd==today else f"color:{_gc};"
+                _wh[_gi+1].markdown(f'<div style="text-align:center;font-size:10px;font-weight:600;border-bottom:2px solid #e9d5ff;padding:3px 1px;{_bg}">{_gn}<br>{_gd.day}</div>', unsafe_allow_html=True)
+            # 이벤트 행
             if not _wevs:
-                _gh += '<tr><td colspan="8" style="text-align:center;padding:24px;font-size:12px;color:#9ca3af">이번 주 일정이 없어요</td></tr>'
+                st.markdown('<div style="text-align:center;padding:20px;font-size:12px;color:#9ca3af">이번 주 일정이 없어요</div>', unsafe_allow_html=True)
             for _ev in _wevs:
-                _sc = (_ev["start"] - _ws3).days
-                _ec2 = (_ev["end"] - _ws3).days
-                _gh += '<tr>'
-                _gh += f'<td style="padding:5px 8px;font-size:11px;font-weight:600;color:#374151;border-bottom:1px solid #f3f4f6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100px">{html_lib.escape(_ev["title"])}</td>'
-                for _ci in range(7):
-                    if _sc <= _ci <= _ec2:
-                        _is_s = _ci == _sc; _is_e = _ci == _ec2
-                        _r = "10px" if (_is_s and _is_e) else ("10px 0 0 10px" if _is_s else ("0 10px 10px 0" if _is_e else "0"))
-                        _gh += f'<td style="padding:5px 2px;border-bottom:1px solid #f3f4f6"><div style="background:{_ev["color"]};height:20px;border-radius:{_r};opacity:0.85"></div></td>'
-                    else:
-                        _gh += '<td style="padding:5px 2px;border-bottom:1px solid #f3f4f6"></td>'
-                _gh += '</tr>'
-            _gh += '</tbody></table></div>'
-            st.markdown(_gh, unsafe_allow_html=True)
-
-        # ── 이번 달/주 일정 클릭 버튼 ──
-        if not sch_df_main.empty:
-            if _cv == "월":
-                _yr2, _mo2 = st.session_state["cal_year"], st.session_state["cal_month"]
-                _rng_s = datetime.date(_yr2, _mo2, 1)
-                _rng_e = datetime.date(_yr2, _mo2, _cal_mod.monthrange(_yr2, _mo2)[1])
-                _ev_label = f"{_yr2}년 {_mo2}월"
-            else:
-                _rng_s = st.session_state["cal_week_start"]
-                _rng_e = _rng_s + datetime.timedelta(days=6)
-                _ev_label = f"{_rng_s.strftime('%m.%d')} ~ {_rng_e.strftime('%m.%d')}"
-
-            _period_evs = []
-            for _, _er in sch_df_main.iterrows():
-                _es2 = _parse_start_date(_er["날짜"])
-                _ee2 = _parse_end_date(_er["날짜"])
-                if _es2 and _ee2 and _es2 <= _rng_e and _ee2 >= _rng_s:
-                    _period_evs.append(_er)
-
-            if _period_evs:
-                st.markdown(
-                    f'<div style="font-size:11px;color:#9ca3af;font-weight:600;margin-top:8px;margin-bottom:4px">'
-                    f'📌 {_ev_label} 일정 — 클릭하여 수정</div>',
-                    unsafe_allow_html=True
-                )
-                for _per_ev in _period_evs:
-                    _ec3   = _cmap.get(str(_per_ev["제목"]), "#a855f7")
-                    _done3 = _per_ev["완료"] == "✅"
-                    _ev_btn_label = f"{'✅ ' if _done3 else '📌 '}{_per_ev['날짜']}  {_per_ev['제목']}"
-                    if st.button(_ev_btn_label, key=f"cal_ev_{_per_ev['_row']}",
-                                 use_container_width=True):
+                _wr = st.columns([1.8, 1, 1, 1, 1, 1, 1, 1])
+                with _wr[0]:
+                    _wshort = (_ev["title"][:10] + "…") if len(_ev["title"]) > 10 else _ev["title"]
+                    if st.button(_wshort, key=f"wev_{_ev['row_id']}", use_container_width=True, help=_ev["title"]):
                         st.session_state.editing_schedule = {
-                            "row": int(_per_ev["_row"]),
-                            "날짜": str(_per_ev["날짜"]),
-                            "제목": str(_per_ev["제목"]),
-                            "메모": str(_per_ev["메모"]),
+                            "row": _ev["row_id"], "날짜": str(_ev["er"]["날짜"]),
+                            "제목": str(_ev["er"]["제목"]), "메모": str(_ev["er"]["메모"]),
                         }
                         st.rerun()
+                for _ci in range(7):
+                    if _ev["sc"] <= _ci <= _ev["ec"]:
+                        _is_s = _ci == _ev["sc"]; _is_e = _ci == _ev["ec"]
+                        _r = "8px" if (_is_s and _is_e) else ("8px 0 0 8px" if _is_s else ("0 8px 8px 0" if _is_e else "0"))
+                        _wr[_ci+1].markdown(f'<div style="background:{_ev["color"]};height:22px;border-radius:{_r};margin:4px 1px;opacity:0.85"></div>', unsafe_allow_html=True)
+                    else:
+                        _wr[_ci+1].markdown('<div style="height:22px;margin:4px 1px"></div>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
 
         st.markdown('<div class="sec-divider"></div>', unsafe_allow_html=True)
 
