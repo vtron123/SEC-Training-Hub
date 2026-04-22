@@ -921,93 +921,43 @@ if "search_history" not in st.session_state:
 if "editing_schedule" not in st.session_state:
     st.session_state.editing_schedule = None  # {"row": int, "날짜": str, "제목": str, "메모": str}
 
-# ── 캘린더 커스텀 컴포넌트 (런타임에 임시 디렉토리 생성) ──
-import tempfile as _tempfile
-_CAL_COMP_DIR   = os.path.join(_tempfile.gettempdir(), "sec_cal_comp_v2")
-_CAL_COMP_INDEX = os.path.join(_CAL_COMP_DIR, "index.html")
-os.makedirs(_CAL_COMP_DIR, exist_ok=True)
-_CAL_HTML_SRC = """<!DOCTYPE html>
-<html><head><meta charset="utf-8">
-<style>
-*{box-sizing:border-box}
-body{margin:0;padding:0;font-family:'Pretendard','Apple SD Gothic Neo',sans-serif;background:transparent}
-.cal-wrap{background:white;border-radius:18px;padding:14px 8px 10px;box-shadow:0 2px 12px rgba(0,0,0,.07)}
-table{width:100%;border-collapse:collapse;table-layout:fixed}
-th{text-align:center;padding:6px 0 8px;font-size:11px;font-weight:700;border-bottom:2px solid #f3f4f6}
-td{vertical-align:top;padding:4px 3px;border-top:1px solid #f3f4f6}
-.day-num{text-align:center;font-size:11px;font-weight:600;margin-bottom:2px}
-.today-num{text-align:center;margin-bottom:2px}
-.today-circle{background:linear-gradient(135deg,#a855f7,#7c3aed);color:white;border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700}
-.ev-chip{display:block;color:white;font-size:9px;padding:1px 5px;border-radius:3px;margin:1px 0;overflow:hidden;white-space:nowrap;line-height:1.7;cursor:pointer;user-select:none}
-.ev-chip:hover{opacity:.82}
-.ev-empty{height:18px;margin:1px 0;display:block}
-</style></head>
-<body><div id="root"></div>
-<script>
-/* 1. 이벤트 리스너 먼저 등록 */
-window.addEventListener("message",function(e){
-  if(!e.data)return;
-  if(e.data.type==="streamlit:render"){render(e.data.args);}
-});
-/* 2. 그 다음 ready 신호 */
-window.parent.postMessage({type:"streamlit:componentReady",apiVersion:1},"*");
-
-function sendValue(v){window.parent.postMessage({type:"streamlit:setComponentValue",value:v,dataType:"json"},"*")}
-
-function setHeight(){
-  var h=document.getElementById('root').offsetHeight+24;
-  window.parent.postMessage({type:"streamlit:setFrameHeight",height:Math.max(h,80)},"*");
-}
-
-function render(a){
-  if(!a||!a.mcal){return;}
-  var DN=["월","화","수","목","금","토","일"],DC=["#6b7280","#6b7280","#6b7280","#6b7280","#6b7280","#3b82f6","#ef4444"];
-  var h='<div class="cal-wrap"><table><thead><tr>';
-  for(var i=0;i<7;i++)h+='<th style="color:'+DC[i]+'">'+DN[i]+'</th>';
-  h+='</tr></thead><tbody>';
-  for(var wi=0;wi<a.mcal.length;wi++){
-    var wk=a.mcal[wi],ro=[],rs={};
-    for(var di=0;di<7;di++){var d=wk[di];if(!d)continue;var evs=a.day_evs[String(d)]||[];for(var ei=0;ei<evs.length;ei++){var rid=evs[ei][2];if(!(rid in rs)){rs[rid]=ro.length;ro.push(rid)}}}
-    var slots=ro.length;
-    h+='<tr>';
-    for(var di=0;di<7;di++){
-      var d=wk[di],dc=(di===6)?"#ef4444":(di===5?"#3b82f6":"#374151");
-      h+='<td>';
-      if(!d){h+='&nbsp;'}else{
-        var p2=function(n){return String(n).padStart(2,'0')};
-        var ds=a.year+'-'+p2(a.month)+'-'+p2(d);
-        if(ds===a.today_str)h+='<div class="today-num"><span class="today-circle">'+d+'</span></div>';
-        else h+='<div class="day-num" style="color:'+dc+'">'+d+'</div>';
-        var evs=a.day_evs[String(d)]||[],dm={};
-        for(var ei=0;ei<evs.length;ei++)dm[evs[ei][2]]=evs[ei];
-        for(var si=0;si<slots;si++){
-          var rid2=ro[si];
-          if(rid2 in dm){var ev=dm[rid2],t=ev[0],c=ev[1],st2=t.length>5?t.slice(0,5)+'\\u2026':t;
-            h+='<div class="ev-chip" data-row="'+rid2+'" style="background:'+c+'" title="'+esc(t)+'">'+esc(st2)+'</div>';}
-          else h+='<div class="ev-empty"></div>';
-        }
-      }
-      h+='</td>';
-    }
-    h+='</tr>';
-  }
-  h+='</tbody></table></div>';
-  document.getElementById('root').innerHTML=h;
-  document.querySelectorAll('.ev-chip').forEach(function(c){
-    c.addEventListener('click',function(){sendValue(parseInt(this.getAttribute('data-row')));});
-  });
-  setTimeout(setHeight,40);
-}
-function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
-</script></body></html>"""
-with open(_CAL_COMP_INDEX, "w", encoding="utf-8") as _f:
-    _f.write(_CAL_HTML_SRC)
-_cal_component = _components.declare_component("sec_cal_component", path=_CAL_COMP_DIR)
+# ── 캘린더 이벤트 클릭: query param → editing_schedule → tab3 이동 ──
+_cq = st.query_params.get("edit_row")
+if _cq:
+    try:
+        _cq_id = int(_cq)
+        _cq_df = load_schedules()
+        if not _cq_df.empty:
+            _cq_r = _cq_df[_cq_df["_row"] == _cq_id]
+            if not _cq_r.empty:
+                _r0 = _cq_r.iloc[0]
+                st.session_state.editing_schedule = {
+                    "row": _cq_id, "날짜": str(_r0["날짜"]),
+                    "제목": str(_r0["제목"]), "메모": str(_r0["메모"]),
+                }
+                st.session_state["_goto_tab3"] = True
+    except Exception:
+        pass
+    st.query_params.clear()
+    st.rerun()
 
 # ──────────────────────────────────────────────
 # 탭 레이아웃
 # ──────────────────────────────────────────────
 tab1, tab2, tab3, tab4 = st.tabs(["  📊  학습 이력  ", "  🖥️  트레이닝 PC 자리  ", "  📅  일정 & 메모  ", "  🏟️  우리만의 일정  "])
+
+# 캘린더 이벤트 클릭 후 tab3 자동 이동
+if st.session_state.pop("_goto_tab3", False):
+    _components.html("""<script>
+(function(){
+  function clickTab3(){
+    var ts=window.parent.document.querySelectorAll('[role="tab"]');
+    if(ts.length>2){ts[2].click();}
+    else{setTimeout(clickTab3,100);}
+  }
+  setTimeout(clickTab3,250);
+})();
+</script>""", height=0)
 
 # ══════════════════════════════════════════════
 # TAB 1 — 학습 이력
@@ -1874,36 +1824,72 @@ with tab3:
                         if _es <= _dd2 <= _ee:
                             _day_evs.setdefault(_d, []).append([str(_er["제목"]), _ec, _rid])
 
-            # JSON-직렬화 가능한 형태로 변환
-            _day_evs_json = {str(k): v for k, v in _day_evs.items()}
-            _mcal_list    = [[int(d) for d in w] for w in _mcal]
+            # ── st.components.v1.html 로 HTML 테이블 달력 렌더 ──
+            # 슬롯 기반 정렬을 Python에서 미리 계산
+            _dn = ["월","화","수","목","금","토","일"]
+            _tbl = '<table style="width:100%;border-collapse:collapse;table-layout:fixed;font-family:Pretendard,sans-serif"><thead><tr>'
+            for _di2, _dn2 in enumerate(_dn):
+                _dc2 = "#ef4444" if _di2==6 else ("#3b82f6" if _di2==5 else "#6b7280")
+                _tbl += f'<th style="text-align:center;padding:6px 0 8px;font-size:11px;font-weight:700;color:{_dc2};border-bottom:2px solid #f3f4f6;width:14.28%">{_dn2}</th>'
+            _tbl += '</tr></thead><tbody>'
 
-            # ── declare_component 로 달력 렌더 + 클릭 이벤트 수신 ──
-            _cal_default_h = len(_mcal) * 76 + 60
-            _clicked = _cal_component(
-                year=_yr,
-                month=_mo,
-                today_str=today.isoformat(),
-                mcal=_mcal_list,
-                day_evs=_day_evs_json,
-                key=f"cal_comp_{_yr}_{_mo}",
-                default=None,
-                height=_cal_default_h,
-            )
-            if _clicked is not None:
-                try:
-                    _cr_id = int(_clicked)
-                    if not sch_df_main.empty:
-                        _cr_rows = sch_df_main[sch_df_main["_row"] == _cr_id]
-                        if not _cr_rows.empty:
-                            _cr = _cr_rows.iloc[0]
-                            st.session_state.editing_schedule = {
-                                "row": _cr_id, "날짜": str(_cr["날짜"]),
-                                "제목": str(_cr["제목"]), "메모": str(_cr["메모"]),
-                            }
-                except Exception:
-                    pass
-                st.rerun()
+            for _week in _mcal:
+                # 이번 주 슬롯 배정 (등장 순서)
+                _ro, _rs = [], {}
+                for _wd in _week:
+                    if not _wd: continue
+                    for _et2, _ec2, _rid2 in _day_evs.get(_wd, []):
+                        if _rid2 not in _rs:
+                            _rs[_rid2] = len(_ro); _ro.append((_rid2, _ec2))
+                _slots = len(_ro)
+
+                _tbl += '<tr>'
+                for _wi2, _wd in enumerate(_week):
+                    _dc2 = "#ef4444" if _wi2==6 else ("#3b82f6" if _wi2==5 else "#374151")
+                    _tbl += '<td style="vertical-align:top;padding:4px 3px;border-top:1px solid #f3f4f6">'
+                    if not _wd:
+                        _tbl += '&nbsp;'
+                    else:
+                        _dd2 = datetime.date(_yr, _mo, _wd)
+                        if _dd2 == today:
+                            _tbl += f'<div style="text-align:center;margin-bottom:2px"><span style="background:linear-gradient(135deg,#a855f7,#7c3aed);color:white;border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700">{_wd}</span></div>'
+                        else:
+                            _tbl += f'<div style="text-align:center;font-size:11px;font-weight:600;color:{_dc2};margin-bottom:2px">{_wd}</div>'
+                        # 슬롯 순서대로 이벤트/빈칸 렌더
+                        _day_map2 = {r: (e, c) for e, c, r in _day_evs.get(_wd, [])}
+                        for _si, (_rid3, _ec3) in enumerate(_ro):
+                            if _rid3 in _day_map2:
+                                _et3, _ = _day_map2[_rid3]
+                                _sh3 = html_lib.escape((_et3[:5]+"…") if len(_et3)>5 else _et3)
+                                _tbl += (f'<div class="ev-chip" data-row="{_rid3}" '
+                                         f'style="display:block;background:{_ec3};color:white;font-size:9px;'
+                                         f'padding:1px 5px;border-radius:3px;margin:1px 0;overflow:hidden;'
+                                         f'white-space:nowrap;line-height:1.7;cursor:pointer;user-select:none" '
+                                         f'title="{html_lib.escape(_et3)}">{_sh3}</div>')
+                            else:
+                                _tbl += '<div style="height:18px;margin:1px 0"></div>'
+                    _tbl += '</td>'
+                _tbl += '</tr>'
+            _tbl += '</tbody></table>'
+
+            _cal_h2 = len(_mcal) * 76 + 60
+            _comp_html2 = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>
+body{{margin:0;padding:0;background:transparent;font-family:Pretendard,sans-serif}}
+.cal-wrap{{background:white;border-radius:18px;padding:14px 8px 10px;box-shadow:0 2px 12px rgba(0,0,0,.07)}}
+.ev-chip:hover{{opacity:.82}}
+</style></head><body>
+<div class="cal-wrap">{_tbl}</div>
+<script>
+document.querySelectorAll('.ev-chip').forEach(function(c){{
+  c.addEventListener('click',function(){{
+    var rid=this.getAttribute('data-row');
+    window.parent.location.href=window.parent.location.pathname+'?edit_row='+rid;
+  }});
+}});
+</script>
+</body></html>"""
+            _components.html(_comp_html2, height=_cal_h2, scrolling=False)
 
         else:
             # ── 주간 Gantt (이벤트 제목 클릭 가능) ──
