@@ -930,8 +930,8 @@ _CAL_HTML_SRC = """<!DOCTYPE html>
 <html><head><meta charset="utf-8">
 <style>
 *{box-sizing:border-box}
-body{margin:0;padding:0;font-family:'Pretendard','Apple SD Gothic Neo',sans-serif;background:transparent;overflow:hidden}
-.cal-wrap{background:white;border-radius:18px;padding:14px 8px 10px;box-shadow:0 2px 12px rgba(0,0,0,.07);overflow:hidden}
+body{margin:0;padding:0;font-family:'Pretendard','Apple SD Gothic Neo',sans-serif;background:transparent}
+.cal-wrap{background:white;border-radius:18px;padding:14px 8px 10px;box-shadow:0 2px 12px rgba(0,0,0,.07)}
 table{width:100%;border-collapse:collapse;table-layout:fixed}
 th{text-align:center;padding:6px 0 8px;font-size:11px;font-weight:700;border-bottom:2px solid #f3f4f6}
 td{vertical-align:top;padding:4px 3px;border-top:1px solid #f3f4f6}
@@ -944,10 +944,23 @@ td{vertical-align:top;padding:4px 3px;border-top:1px solid #f3f4f6}
 </style></head>
 <body><div id="root"></div>
 <script>
+/* 1. 이벤트 리스너 먼저 등록 */
+window.addEventListener("message",function(e){
+  if(!e.data)return;
+  if(e.data.type==="streamlit:render"){render(e.data.args);}
+});
+/* 2. 그 다음 ready 신호 */
 window.parent.postMessage({type:"streamlit:componentReady",apiVersion:1},"*");
+
 function sendValue(v){window.parent.postMessage({type:"streamlit:setComponentValue",value:v,dataType:"json"},"*")}
-window.addEventListener("message",function(e){if(e.data&&e.data.type==="streamlit:render")render(e.data.args)});
+
+function setHeight(){
+  var h=document.getElementById('root').offsetHeight+24;
+  window.parent.postMessage({type:"streamlit:setFrameHeight",height:Math.max(h,80)},"*");
+}
+
 function render(a){
+  if(!a||!a.mcal){return;}
   var DN=["월","화","수","목","금","토","일"],DC=["#6b7280","#6b7280","#6b7280","#6b7280","#6b7280","#3b82f6","#ef4444"];
   var h='<div class="cal-wrap"><table><thead><tr>';
   for(var i=0;i<7;i++)h+='<th style="color:'+DC[i]+'">'+DN[i]+'</th>';
@@ -970,7 +983,7 @@ function render(a){
         for(var si=0;si<slots;si++){
           var rid2=ro[si];
           if(rid2 in dm){var ev=dm[rid2],t=ev[0],c=ev[1],st2=t.length>5?t.slice(0,5)+'\\u2026':t;
-            h+='<div class="ev-chip" data-row="'+rid2+'" style="background:'+c+'" title="'+esc(t)+'">'+esc(st2)+'</div>'}
+            h+='<div class="ev-chip" data-row="'+rid2+'" style="background:'+c+'" title="'+esc(t)+'">'+esc(st2)+'</div>';}
           else h+='<div class="ev-empty"></div>';
         }
       }
@@ -980,10 +993,12 @@ function render(a){
   }
   h+='</tbody></table></div>';
   document.getElementById('root').innerHTML=h;
-  document.querySelectorAll('.ev-chip').forEach(function(c){c.addEventListener('click',function(){sendValue(parseInt(this.getAttribute('data-row')))})});
-  setTimeout(function(){window.parent.postMessage({type:"streamlit:setFrameHeight",height:document.body.scrollHeight+10},"*")},30);
+  document.querySelectorAll('.ev-chip').forEach(function(c){
+    c.addEventListener('click',function(){sendValue(parseInt(this.getAttribute('data-row')));});
+  });
+  setTimeout(setHeight,40);
 }
-function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 </script></body></html>"""
 with open(_CAL_COMP_INDEX, "w", encoding="utf-8") as _f:
     _f.write(_CAL_HTML_SRC)
@@ -1864,6 +1879,7 @@ with tab3:
             _mcal_list    = [[int(d) for d in w] for w in _mcal]
 
             # ── declare_component 로 달력 렌더 + 클릭 이벤트 수신 ──
+            _cal_default_h = len(_mcal) * 76 + 60
             _clicked = _cal_component(
                 year=_yr,
                 month=_mo,
@@ -1872,6 +1888,7 @@ with tab3:
                 day_evs=_day_evs_json,
                 key=f"cal_comp_{_yr}_{_mo}",
                 default=None,
+                height=_cal_default_h,
             )
             if _clicked is not None:
                 try:
