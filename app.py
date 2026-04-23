@@ -1732,7 +1732,7 @@ with tab3:
         st.markdown(bubble_html, unsafe_allow_html=True)
 
         # ── 캘린더 ──
-        @st.fragment
+        @st.experimental_fragment
         def _render_cal_fragment(_sdf, _td):
             st.markdown('<div class="sec-label" style="margin-top:8px">📆 일정 캘린더</div>', unsafe_allow_html=True)
 
