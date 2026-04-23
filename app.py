@@ -1,4 +1,4 @@
-import streamlit as st
+﻿import streamlit as st
 import streamlit.components.v1 as _components
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
@@ -1732,291 +1732,295 @@ with tab3:
         st.markdown(bubble_html, unsafe_allow_html=True)
 
         # ── 캘린더 ──
-        st.markdown('<div class="sec-label" style="margin-top:8px">📆 일정 캘린더</div>', unsafe_allow_html=True)
+        @st.fragment
+        def _render_cal_fragment(_sdf, _td):
+            st.markdown('<div class="sec-label" style="margin-top:8px">📆 일정 캘린더</div>', unsafe_allow_html=True)
 
-        for _ck, _cv_def in [("cal_view","월"),("cal_year",today.year),("cal_month",today.month)]:
-            if _ck not in st.session_state:
-                st.session_state[_ck] = _cv_def
-        if "cal_week_start" not in st.session_state:
-            st.session_state["cal_week_start"] = today - datetime.timedelta(days=today.weekday())
+            for _ck, _cv_def in [("cal_view","월"),("cal_year",_td.year),("cal_month",_td.month)]:
+                if _ck not in st.session_state:
+                    st.session_state[_ck] = _cv_def
+            if "cal_week_start" not in st.session_state:
+                st.session_state["cal_week_start"] = _td - datetime.timedelta(days=_td.weekday())
 
-        _CAL_COLORS = ["#a855f7","#3b82f6","#10b981","#f59e0b","#ef4444","#ec4899","#06b6d4","#84cc16"]
-        _cmap = {}
-        if not sch_df_main.empty:
-            for _ci, (_, _crow) in enumerate(sch_df_main.iterrows()):
-                _cmap[str(_crow["제목"])] = _CAL_COLORS[_ci % len(_CAL_COLORS)]
+            _CAL_COLORS = ["#a855f7","#3b82f6","#10b981","#f59e0b","#ef4444","#ec4899","#06b6d4","#84cc16"]
+            _cmap = {}
+            if not _sdf.empty:
+                for _ci_col, (_, _crow) in enumerate(_sdf.iterrows()):
+                    _cmap[str(_crow["제목"])] = _CAL_COLORS[_ci_col % len(_CAL_COLORS)]
 
-        _cv  = st.session_state["cal_view"]
-        _nc1, _nc2, _nc3, _nc4, _nc5, _nc6 = st.columns([0.4, 0.9, 0.8, 0.4, 1.0, 1.0])
+            _cv  = st.session_state["cal_view"]
+            _nc1, _nc2, _nc3, _nc4, _nc5, _nc6 = st.columns([0.4, 0.9, 0.8, 0.4, 1.0, 1.0])
 
-        with _nc1:
-            if st.button("◀", key="cal_nav_prev", use_container_width=True):
-                if _cv == "월":
-                    _m, _y = st.session_state["cal_month"], st.session_state["cal_year"]
-                    if _m == 1: st.session_state["cal_year"] = _y-1; st.session_state["cal_month"] = 12
-                    else: st.session_state["cal_month"] = _m-1
-                else:
-                    st.session_state["cal_week_start"] -= datetime.timedelta(weeks=1)
-                st.rerun()
-
-        if _cv == "월":
-            _yr = st.session_state["cal_year"]
-            _mo = st.session_state["cal_month"]
-            with _nc2:
-                _sel_yr = st.selectbox("년", list(range(2020, 2036)),
-                                       index=_yr - 2020, label_visibility="collapsed",
-                                       format_func=lambda x: f"{x}년")
-            with _nc3:
-                _sel_mo = st.selectbox("월", list(range(1, 13)),
-                                       index=_mo - 1, label_visibility="collapsed",
-                                       format_func=lambda x: f"{x}월")
-            if _sel_yr != _yr or _sel_mo != _mo:
-                st.session_state["cal_year"]  = _sel_yr
-                st.session_state["cal_month"] = _sel_mo
-                st.rerun()
-        else:
-            _ws2 = st.session_state["cal_week_start"]
-            with _nc2:
-                _sel_date = st.date_input("날짜", value=_ws2, label_visibility="collapsed")
-            with _nc3:
-                _we_txt = (_ws2 + datetime.timedelta(days=6)).strftime("%m.%d")
-                st.markdown(f'<div style="padding-top:7px;font-size:12px;color:#7c3aed;font-weight:600">~ {_we_txt}</div>', unsafe_allow_html=True)
-            if isinstance(_sel_date, datetime.date):
-                _new_ws = _sel_date - datetime.timedelta(days=_sel_date.weekday())
-                if _new_ws != _ws2:
-                    st.session_state["cal_week_start"] = _new_ws
+            with _nc1:
+                if st.button("◀", key="cal_nav_prev", use_container_width=True):
+                    if _cv == "월":
+                        _m, _y = st.session_state["cal_month"], st.session_state["cal_year"]
+                        if _m == 1: st.session_state["cal_year"] = _y-1; st.session_state["cal_month"] = 12
+                        else: st.session_state["cal_month"] = _m-1
+                    else:
+                        st.session_state["cal_week_start"] -= datetime.timedelta(weeks=1)
                     st.rerun()
 
-        with _nc4:
-            if st.button("▶", key="cal_nav_next", use_container_width=True):
-                if _cv == "월":
-                    _m, _y = st.session_state["cal_month"], st.session_state["cal_year"]
-                    if _m == 12: st.session_state["cal_year"] = _y+1; st.session_state["cal_month"] = 1
-                    else: st.session_state["cal_month"] = _m+1
-                else:
-                    st.session_state["cal_week_start"] += datetime.timedelta(weeks=1)
-                st.rerun()
-        with _nc5:
-            if st.button("📅 월간", key="cal_btn_month", use_container_width=True,
-                         type="primary" if _cv == "월" else "secondary"):
-                st.session_state["cal_view"] = "월"; st.rerun()
-        with _nc6:
-            if st.button("📊 주간", key="cal_btn_week", use_container_width=True,
-                         type="primary" if _cv == "주" else "secondary"):
-                st.session_state["cal_view"] = "주"; st.rerun()
-
-        if _cv == "월":
-            _yr, _mo = st.session_state["cal_year"], st.session_state["cal_month"]
-            _mcal = _cal_mod.monthcalendar(_yr, _mo)
-
-            # 날짜별 이벤트 사전 수집
-            _day_evs: dict = {}
-            if not sch_df_main.empty:
-                for _, _er in sch_df_main.iterrows():
-                    if _er["완료"] == "✅": continue
-                    _es = _parse_start_date(_er["날짜"])
-                    _ee = _parse_end_date(_er["날짜"])
-                    if not (_es and _ee): continue
-                    _rid = int(_er["_row"])
-                    _ec  = _cmap.get(str(_er["제목"]), "#a855f7")
-                    for _d in range(1, _cal_mod.monthrange(_yr, _mo)[1] + 1):
-                        _dd2 = datetime.date(_yr, _mo, _d)
-                        if _es <= _dd2 <= _ee:
-                            _day_evs.setdefault(_d, []).append([str(_er["제목"]), _ec, _rid])
-
-            # ── 월간 달력: 순수 HTML 컬러칩 iframe ──
-            _dn = ["월","화","수","목","금","토","일"]
-            _tbl = ('<table style="width:100%;border-collapse:collapse;table-layout:fixed">'
-                    '<thead><tr>')
-            for _hi, _hn in enumerate(_dn):
-                _hc2 = "#ef4444" if _hi==6 else ("#3b82f6" if _hi==5 else "#6b7280")
-                _tbl += (f'<th style="text-align:center;padding:6px 0 8px;font-size:11px;'
-                         f'font-weight:700;color:{_hc2};border-bottom:2px solid #f3f4f6;'
-                         f'width:14.28%">{_hn}</th>')
-            _tbl += '</tr></thead><tbody>'
-
-            for _week in _mcal:
-                _ro, _rs = [], {}
-                for _wd in _week:
-                    if not _wd: continue
-                    for _et2, _ec2, _rid2 in _day_evs.get(_wd, []):
-                        if _rid2 not in _rs:
-                            _rs[_rid2] = len(_ro); _ro.append((_rid2, _ec2))
-
-                _tbl += '<tr>'
-                for _wi2, _wd in enumerate(_week):
-                    _dc2 = "#ef4444" if _wi2==6 else ("#3b82f6" if _wi2==5 else "#374151")
-                    _tbl += '<td style="vertical-align:top;padding:4px 3px;border-top:1px solid #f3f4f6;min-height:56px">'
-                    if not _wd:
-                        _tbl += '&nbsp;'
-                    else:
-                        _dd2 = datetime.date(_yr, _mo, _wd)
-                        if _dd2 == today:
-                            _tbl += (f'<div style="text-align:center;margin-bottom:3px">'
-                                     f'<span style="background:linear-gradient(135deg,#a855f7,#7c3aed);'
-                                     f'color:white;border-radius:50%;width:20px;height:20px;'
-                                     f'display:inline-flex;align-items:center;justify-content:center;'
-                                     f'font-size:10px;font-weight:700">{_wd}</span></div>')
-                        else:
-                            _tbl += (f'<div style="text-align:center;font-size:11px;font-weight:600;'
-                                     f'color:{_dc2};margin-bottom:3px">{_wd}</div>')
-                        _day_map2 = {r: (e, c) for e, c, r in _day_evs.get(_wd, [])}
-                        for _rid3, _ec3 in _ro:
-                            if _rid3 in _day_map2:
-                                _et3 = _day_map2[_rid3][0]
-                                _sh3 = html_lib.escape((_et3[:5]+"…") if len(_et3)>5 else _et3)
-                                _tbl += (f'<div onclick="go({_rid3})" title="{html_lib.escape(_et3)}" '
-                                         f'style="background:{_ec3};color:white;font-size:9px;'
-                                         f'padding:1px 5px;border-radius:3px;margin:1px 0;'
-                                         f'overflow:hidden;white-space:nowrap;line-height:1.7;'
-                                         f'cursor:pointer;user-select:none">{_sh3}</div>')
-                            else:
-                                _tbl += '<div style="height:18px;margin:1px 0"></div>'
-                    _tbl += '</td>'
-                _tbl += '</tr>'
-            _tbl += '</tbody></table>'
-
-            # 주 별 슬롯 수로 실제 높이 계산
-            _week_slot_counts = []
-            for _wk_tmp in _mcal:
-                _ro_tmp, _rs_tmp = [], {}
-                for _wd_tmp in _wk_tmp:
-                    if not _wd_tmp: continue
-                    for _et_t, _ec_t, _rid_t in _day_evs.get(_wd_tmp, []):
-                        if _rid_t not in _rs_tmp:
-                            _rs_tmp[_rid_t] = len(_ro_tmp); _ro_tmp.append(_rid_t)
-                _week_slot_counts.append(len(_ro_tmp))
-            _cal_h = 50 + sum(max(1, s) * 22 + 30 for s in _week_slot_counts)
-
-            _cal_iframe = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
-<style>
-*{{box-sizing:border-box}}
-body{{margin:0;padding:0;font-family:'Pretendard','Apple SD Gothic Neo',sans-serif;background:transparent;overflow:hidden}}
-div[onclick]:hover{{opacity:0.82;cursor:pointer}}
-</style></head><body>
-<div style="background:white;border-radius:18px;padding:12px 8px 8px;box-shadow:0 2px 12px rgba(0,0,0,.07)">
-{_tbl}
-</div>
-<script>
-function go(rid){{
-  window.parent.location.href=window.parent.location.pathname+'?edit_row='+rid;
-}}
-(function(){{
-  function sendH(){{
-    var h=document.documentElement.scrollHeight||document.body.scrollHeight;
-    window.parent.postMessage({{type:"streamlit:setFrameHeight",height:h+6}},"*");
-  }}
-  if(document.readyState==="complete")sendH();else window.addEventListener("load",sendH);
-  setTimeout(sendH,80);
-  setTimeout(sendH,300);
-}})();
-</script>
-</body></html>"""
-            _components.html(_cal_iframe, height=_cal_h, scrolling=False)
-
-        else:
-            # ── 주간 Gantt (순수 HTML iframe) ──
-            _ws3  = st.session_state["cal_week_start"]
-            _we3  = _ws3 + datetime.timedelta(days=6)
-            _wdts = [_ws3 + datetime.timedelta(days=i) for i in range(7)]
-            _wevs = []
-            if not sch_df_main.empty:
-                for _, _er in sch_df_main.iterrows():
-                    if _er["완료"] == "✅": continue
-                    _es = _parse_start_date(_er["날짜"])
-                    _ee = _parse_end_date(_er["날짜"])
-                    if _es and _ee and _es <= _we3 and _ee >= _ws3:
-                        _wevs.append({
-                            "title": str(_er["제목"]), "color": _cmap.get(str(_er["제목"]), "#a855f7"),
-                            "sc": (max(_es, _ws3) - _ws3).days,
-                            "ec": (min(_ee, _we3) - _ws3).days,
-                            "row_id": int(_er["_row"]), "er": _er,
-                        })
-
-            _dlabels = ["월","화","수","목","금","토","일"]
-            # ── 헤더 ──
-            _wk_headers = ""
-            for _gi, (_gd, _gn) in enumerate(zip(_wdts, _dlabels)):
-                _gc = "#ef4444" if _gi==6 else ("#3b82f6" if _gi==5 else "#374151")
-                if _gd == today:
-                    _wk_headers += (f'<th style="text-align:center;padding:4px 3px 8px;'
-                                    f'font-size:10px;font-weight:700;border-bottom:2px solid #e9d5ff">'
-                                    f'<span style="background:linear-gradient(135deg,#a855f7,#7c3aed);'
-                                    f'color:white;border-radius:7px;padding:3px 7px;display:inline-block;'
-                                    f'line-height:1.6">{_gn}<br>'
-                                    f'<span style="font-size:12px">{_gd.day}</span></span></th>')
-                else:
-                    _wk_headers += (f'<th style="text-align:center;padding:4px 3px 8px;color:{_gc};'
-                                    f'font-size:10px;font-weight:700;border-bottom:2px solid #e9d5ff">'
-                                    f'{_gn}<br><span style="font-size:12px">{_gd.day}</span></th>')
-            # ── 이벤트 행 ──
-            if not _wevs:
-                _wk_rows = '<tr><td colspan="8" style="text-align:center;padding:28px;font-size:12px;color:#9ca3af">이번 주 일정이 없어요</td></tr>'
+            if _cv == "월":
+                _yr = st.session_state["cal_year"]
+                _mo = st.session_state["cal_month"]
+                with _nc2:
+                    _sel_yr = st.selectbox("년", list(range(2020, 2036)),
+                                           index=_yr - 2020, label_visibility="collapsed",
+                                           format_func=lambda x: f"{x}년")
+                with _nc3:
+                    _sel_mo = st.selectbox("월", list(range(1, 13)),
+                                           index=_mo - 1, label_visibility="collapsed",
+                                           format_func=lambda x: f"{x}월")
+                if _sel_yr != _yr or _sel_mo != _mo:
+                    st.session_state["cal_year"]  = _sel_yr
+                    st.session_state["cal_month"] = _sel_mo
+                    st.rerun()
             else:
-                _wk_rows = ""
-                for _ev in _wevs:
-                    _rid5 = _ev["row_id"]; _col5 = _ev["color"]
-                    _t5   = html_lib.escape(_ev["title"])
-                    _sh5  = html_lib.escape((_ev["title"][:11]+"…") if len(_ev["title"])>11 else _ev["title"])
-                    _wk_rows += (f'<tr><td style="padding:3px 4px 3px 2px;border-left:none;'
-                                 f'vertical-align:middle;width:88px">'
-                                 f'<div onclick="go({_rid5})" title="{_t5}" '
-                                 f'style="background:{_col5};color:white;font-size:9px;'
-                                 f'padding:3px 8px;border-radius:10px;white-space:nowrap;overflow:hidden;'
-                                 f'cursor:pointer;user-select:none;line-height:1.7;display:block">{_sh5}</div>'
-                                 f'</td>')
-                    for _ci in range(7):
-                        _is_td = (_wdts[_ci] == today)
-                        _bg_td = "background:rgba(168,85,247,0.05);" if _is_td else ""
-                        _bl    = "border-left:1px solid #f0e6ff;" if _ci > 0 else "border-left:1px solid #f0e6ff;"
-                        if _ev["sc"] <= _ci <= _ev["ec"]:
-                            _is_s5 = _ci == _ev["sc"]; _is_e5 = _ci == _ev["ec"]
-                            _br5 = ("10px" if (_is_s5 and _is_e5) else
-                                    ("10px 0 0 10px" if _is_s5 else ("0 10px 10px 0" if _is_e5 else "0")))
-                            _txt5 = (f'<span style="font-size:8px;color:white;font-weight:600;'
-                                     f'white-space:nowrap;overflow:hidden;display:block">'
-                                     f'{html_lib.escape(_ev["title"][:9])}</span>') if _is_s5 else ""
-                            _wk_rows += (f'<td style="padding:3px 1px;vertical-align:middle;{_bg_td}{_bl}">'
-                                         f'<div style="background:{_col5};height:24px;border-radius:{_br5};'
-                                         f'opacity:0.92;display:flex;align-items:center;padding:0 6px;'
-                                         f'overflow:hidden">{_txt5}</div></td>')
-                        else:
-                            _wk_rows += f'<td style="padding:3px 1px;height:30px;{_bg_td}{_bl}"></td>'
-                    _wk_rows += '</tr>'
+                _ws2 = st.session_state["cal_week_start"]
+                with _nc2:
+                    _sel_date = st.date_input("날짜", value=_ws2, label_visibility="collapsed")
+                with _nc3:
+                    _we_txt = (_ws2 + datetime.timedelta(days=6)).strftime("%m.%d")
+                    st.markdown(f'<div style="padding-top:7px;font-size:12px;color:#7c3aed;font-weight:600">~ {_we_txt}</div>', unsafe_allow_html=True)
+                if isinstance(_sel_date, datetime.date):
+                    _new_ws = _sel_date - datetime.timedelta(days=_sel_date.weekday())
+                    if _new_ws != _ws2:
+                        st.session_state["cal_week_start"] = _new_ws
+                        st.rerun()
 
-            _wk_h = max(90, 56 + len(_wevs) * 34)
-            _wk_iframe = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
-<style>
-*{{box-sizing:border-box}}
-body{{margin:0;padding:0;font-family:'Pretendard','Apple SD Gothic Neo',sans-serif;background:transparent;overflow:hidden}}
-div[onclick]:hover{{opacity:0.82}}
-</style></head><body>
-<div style="background:white;border-radius:18px;padding:12px 8px 10px;box-shadow:0 2px 12px rgba(0,0,0,.07)">
-<table style="width:100%;border-collapse:collapse;table-layout:fixed">
-<colgroup><col style="width:88px"><col><col><col><col><col><col><col></colgroup>
-<thead><tr>
-<th style="text-align:left;padding:4px 4px 8px;font-size:10px;font-weight:600;color:#9ca3af;border-bottom:2px solid #e9d5ff">일정명</th>
-{_wk_headers}
-</tr></thead>
-<tbody>{_wk_rows}</tbody>
-</table>
-</div>
-<script>
-function go(rid){{
-  window.parent.location.href=window.parent.location.pathname+'?edit_row='+rid;
-}}
-(function(){{
-  function sendH(){{
-    var h=document.documentElement.scrollHeight||document.body.scrollHeight;
-    window.parent.postMessage({{type:"streamlit:setFrameHeight",height:h+6}},"*");
-  }}
-  if(document.readyState==="complete")sendH();else window.addEventListener("load",sendH);
-  setTimeout(sendH,80);
-  setTimeout(sendH,300);
-}})();
-</script>
-</body></html>"""
-            _components.html(_wk_iframe, height=_wk_h, scrolling=False)
+            with _nc4:
+                if st.button("▶", key="cal_nav_next", use_container_width=True):
+                    if _cv == "월":
+                        _m, _y = st.session_state["cal_month"], st.session_state["cal_year"]
+                        if _m == 12: st.session_state["cal_year"] = _y+1; st.session_state["cal_month"] = 1
+                        else: st.session_state["cal_month"] = _m+1
+                    else:
+                        st.session_state["cal_week_start"] += datetime.timedelta(weeks=1)
+                    st.rerun()
+            with _nc5:
+                if st.button("📅 월간", key="cal_btn_month", use_container_width=True,
+                             type="primary" if _cv == "월" else "secondary"):
+                    st.session_state["cal_view"] = "월"; st.rerun()
+            with _nc6:
+                if st.button("📊 주간", key="cal_btn_week", use_container_width=True,
+                             type="primary" if _cv == "주" else "secondary"):
+                    st.session_state["cal_view"] = "주"; st.rerun()
+
+            if _cv == "월":
+                _yr, _mo = st.session_state["cal_year"], st.session_state["cal_month"]
+                _mcal = _cal_mod.monthcalendar(_yr, _mo)
+
+                # 날짜별 이벤트 사전 수집
+                _day_evs: dict = {}
+                if not _sdf.empty:
+                    for _, _er in _sdf.iterrows():
+                        if _er["완료"] == "✅": continue
+                        _es = _parse_start_date(_er["날짜"])
+                        _ee = _parse_end_date(_er["날짜"])
+                        if not (_es and _ee): continue
+                        _rid = int(_er["_row"])
+                        _ec  = _cmap.get(str(_er["제목"]), "#a855f7")
+                        for _d in range(1, _cal_mod.monthrange(_yr, _mo)[1] + 1):
+                            _dd2 = datetime.date(_yr, _mo, _d)
+                            if _es <= _dd2 <= _ee:
+                                _day_evs.setdefault(_d, []).append([str(_er["제목"]), _ec, _rid])
+
+                # ── 월간 달력: 순수 HTML 컬러칩 iframe ──
+                _dn = ["월","화","수","목","금","토","일"]
+                _tbl = ('<table style="width:100%;border-collapse:collapse;table-layout:fixed">'
+                        '<thead><tr>')
+                for _hi, _hn in enumerate(_dn):
+                    _hc2 = "#ef4444" if _hi==6 else ("#3b82f6" if _hi==5 else "#6b7280")
+                    _tbl += (f'<th style="text-align:center;padding:6px 0 8px;font-size:11px;'
+                             f'font-weight:700;color:{_hc2};border-bottom:2px solid #f3f4f6;'
+                             f'width:14.28%">{_hn}</th>')
+                _tbl += '</tr></thead><tbody>'
+
+                for _week in _mcal:
+                    _ro, _rs = [], {}
+                    for _wd in _week:
+                        if not _wd: continue
+                        for _et2, _ec2, _rid2 in _day_evs.get(_wd, []):
+                            if _rid2 not in _rs:
+                                _rs[_rid2] = len(_ro); _ro.append((_rid2, _ec2))
+
+                    _tbl += '<tr>'
+                    for _wi2, _wd in enumerate(_week):
+                        _dc2 = "#ef4444" if _wi2==6 else ("#3b82f6" if _wi2==5 else "#374151")
+                        _tbl += '<td style="vertical-align:top;padding:4px 3px;border-top:1px solid #f3f4f6;min-height:56px">'
+                        if not _wd:
+                            _tbl += '&nbsp;'
+                        else:
+                            _dd2 = datetime.date(_yr, _mo, _wd)
+                            if _dd2 == _td:
+                                _tbl += (f'<div style="text-align:center;margin-bottom:3px">'
+                                         f'<span style="background:linear-gradient(135deg,#a855f7,#7c3aed);'
+                                         f'color:white;border-radius:50%;width:20px;height:20px;'
+                                         f'display:inline-flex;align-items:center;justify-content:center;'
+                                         f'font-size:10px;font-weight:700">{_wd}</span></div>')
+                            else:
+                                _tbl += (f'<div style="text-align:center;font-size:11px;font-weight:600;'
+                                         f'color:{_dc2};margin-bottom:3px">{_wd}</div>')
+                            _day_map2 = {r: (e, c) for e, c, r in _day_evs.get(_wd, [])}
+                            for _rid3, _ec3 in _ro:
+                                if _rid3 in _day_map2:
+                                    _et3 = _day_map2[_rid3][0]
+                                    _sh3 = html_lib.escape((_et3[:5]+"…") if len(_et3)>5 else _et3)
+                                    _tbl += (f'<div onclick="go({_rid3})" title="{html_lib.escape(_et3)}" '
+                                             f'style="background:{_ec3};color:white;font-size:9px;'
+                                             f'padding:1px 5px;border-radius:3px;margin:1px 0;'
+                                             f'overflow:hidden;white-space:nowrap;line-height:1.7;'
+                                             f'cursor:pointer;user-select:none">{_sh3}</div>')
+                                else:
+                                    _tbl += '<div style="height:18px;margin:1px 0"></div>'
+                        _tbl += '</td>'
+                    _tbl += '</tr>'
+                _tbl += '</tbody></table>'
+
+                # 주 별 슬롯 수로 실제 높이 계산
+                _week_slot_counts = []
+                for _wk_tmp in _mcal:
+                    _ro_tmp, _rs_tmp = [], {}
+                    for _wd_tmp in _wk_tmp:
+                        if not _wd_tmp: continue
+                        for _et_t, _ec_t, _rid_t in _day_evs.get(_wd_tmp, []):
+                            if _rid_t not in _rs_tmp:
+                                _rs_tmp[_rid_t] = len(_ro_tmp); _ro_tmp.append(_rid_t)
+                    _week_slot_counts.append(len(_ro_tmp))
+                _cal_h = 50 + sum(max(1, s) * 22 + 30 for s in _week_slot_counts)
+
+                _cal_iframe = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+    <style>
+    *{{box-sizing:border-box}}
+    body{{margin:0;padding:0;font-family:'Pretendard','Apple SD Gothic Neo',sans-serif;background:transparent;overflow:hidden}}
+    div[onclick]:hover{{opacity:0.82;cursor:pointer}}
+    </style></head><body>
+    <div style="background:white;border-radius:18px;padding:12px 8px 8px;box-shadow:0 2px 12px rgba(0,0,0,.07)">
+    {_tbl}
+    </div>
+    <script>
+    function go(rid){{
+      window.parent.location.href=window.parent.location.pathname+'?edit_row='+rid;
+    }}
+    (function(){{
+      function sendH(){{
+        var h=document.documentElement.scrollHeight||document.body.scrollHeight;
+        window.parent.postMessage({{type:"streamlit:setFrameHeight",height:h+6}},"*");
+      }}
+      if(document.readyState==="complete")sendH();else window.addEventListener("load",sendH);
+      setTimeout(sendH,80);
+      setTimeout(sendH,300);
+    }})();
+    </script>
+    </body></html>"""
+                _components.html(_cal_iframe, height=_cal_h, scrolling=False)
+
+            else:
+                # ── 주간 Gantt (순수 HTML iframe) ──
+                _ws3  = st.session_state["cal_week_start"]
+                _we3  = _ws3 + datetime.timedelta(days=6)
+                _wdts = [_ws3 + datetime.timedelta(days=i) for i in range(7)]
+                _wevs = []
+                if not _sdf.empty:
+                    for _, _er in _sdf.iterrows():
+                        if _er["완료"] == "✅": continue
+                        _es = _parse_start_date(_er["날짜"])
+                        _ee = _parse_end_date(_er["날짜"])
+                        if _es and _ee and _es <= _we3 and _ee >= _ws3:
+                            _wevs.append({
+                                "title": str(_er["제목"]), "color": _cmap.get(str(_er["제목"]), "#a855f7"),
+                                "sc": (max(_es, _ws3) - _ws3).days,
+                                "ec": (min(_ee, _we3) - _ws3).days,
+                                "row_id": int(_er["_row"]), "er": _er,
+                            })
+
+                _dlabels = ["월","화","수","목","금","토","일"]
+                # ── 헤더 ──
+                _wk_headers = ""
+                for _gi, (_gd, _gn) in enumerate(zip(_wdts, _dlabels)):
+                    _gc = "#ef4444" if _gi==6 else ("#3b82f6" if _gi==5 else "#374151")
+                    if _gd == _td:
+                        _wk_headers += (f'<th style="text-align:center;padding:4px 3px 8px;'
+                                        f'font-size:10px;font-weight:700;border-bottom:2px solid #e9d5ff">'
+                                        f'<span style="background:linear-gradient(135deg,#a855f7,#7c3aed);'
+                                        f'color:white;border-radius:7px;padding:3px 7px;display:inline-block;'
+                                        f'line-height:1.6">{_gn}<br>'
+                                        f'<span style="font-size:12px">{_gd.day}</span></span></th>')
+                    else:
+                        _wk_headers += (f'<th style="text-align:center;padding:4px 3px 8px;color:{_gc};'
+                                        f'font-size:10px;font-weight:700;border-bottom:2px solid #e9d5ff">'
+                                        f'{_gn}<br><span style="font-size:12px">{_gd.day}</span></th>')
+                # ── 이벤트 행 ──
+                if not _wevs:
+                    _wk_rows = '<tr><td colspan="8" style="text-align:center;padding:28px;font-size:12px;color:#9ca3af">이번 주 일정이 없어요</td></tr>'
+                else:
+                    _wk_rows = ""
+                    for _ev in _wevs:
+                        _rid5 = _ev["row_id"]; _col5 = _ev["color"]
+                        _t5   = html_lib.escape(_ev["title"])
+                        _sh5  = html_lib.escape((_ev["title"][:11]+"…") if len(_ev["title"])>11 else _ev["title"])
+                        _wk_rows += (f'<tr><td style="padding:3px 4px 3px 2px;border-left:none;'
+                                     f'vertical-align:middle;width:88px">'
+                                     f'<div onclick="go({_rid5})" title="{_t5}" '
+                                     f'style="background:{_col5};color:white;font-size:9px;'
+                                     f'padding:3px 8px;border-radius:10px;white-space:nowrap;overflow:hidden;'
+                                     f'cursor:pointer;user-select:none;line-height:1.7;display:block">{_sh5}</div>'
+                                     f'</td>')
+                        for _ci in range(7):
+                            _is_td = (_wdts[_ci] == _td)
+                            _bg_td = "background:rgba(168,85,247,0.05);" if _is_td else ""
+                            _bl    = "border-left:1px solid #f0e6ff;" if _ci > 0 else "border-left:1px solid #f0e6ff;"
+                            if _ev["sc"] <= _ci <= _ev["ec"]:
+                                _is_s5 = _ci == _ev["sc"]; _is_e5 = _ci == _ev["ec"]
+                                _br5 = ("10px" if (_is_s5 and _is_e5) else
+                                        ("10px 0 0 10px" if _is_s5 else ("0 10px 10px 0" if _is_e5 else "0")))
+                                _txt5 = (f'<span style="font-size:8px;color:white;font-weight:600;'
+                                         f'white-space:nowrap;overflow:hidden;display:block">'
+                                         f'{html_lib.escape(_ev["title"][:9])}</span>') if _is_s5 else ""
+                                _wk_rows += (f'<td style="padding:3px 1px;vertical-align:middle;{_bg_td}{_bl}">'
+                                             f'<div style="background:{_col5};height:24px;border-radius:{_br5};'
+                                             f'opacity:0.92;display:flex;align-items:center;padding:0 6px;'
+                                             f'overflow:hidden">{_txt5}</div></td>')
+                            else:
+                                _wk_rows += f'<td style="padding:3px 1px;height:30px;{_bg_td}{_bl}"></td>'
+                        _wk_rows += '</tr>'
+
+                _wk_h = max(90, 56 + len(_wevs) * 34)
+                _wk_iframe = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+    <style>
+    *{{box-sizing:border-box}}
+    body{{margin:0;padding:0;font-family:'Pretendard','Apple SD Gothic Neo',sans-serif;background:transparent;overflow:hidden}}
+    div[onclick]:hover{{opacity:0.82}}
+    </style></head><body>
+    <div style="background:white;border-radius:18px;padding:12px 8px 10px;box-shadow:0 2px 12px rgba(0,0,0,.07)">
+    <table style="width:100%;border-collapse:collapse;table-layout:fixed">
+    <colgroup><col style="width:88px"><col><col><col><col><col><col><col></colgroup>
+    <thead><tr>
+    <th style="text-align:left;padding:4px 4px 8px;font-size:10px;font-weight:600;color:#9ca3af;border-bottom:2px solid #e9d5ff">일정명</th>
+    {_wk_headers}
+    </tr></thead>
+    <tbody>{_wk_rows}</tbody>
+    </table>
+    </div>
+    <script>
+    function go(rid){{
+      window.parent.location.href=window.parent.location.pathname+'?edit_row='+rid;
+    }}
+    (function(){{
+      function sendH(){{
+        var h=document.documentElement.scrollHeight||document.body.scrollHeight;
+        window.parent.postMessage({{type:"streamlit:setFrameHeight",height:h+6}},"*");
+      }}
+      if(document.readyState==="complete")sendH();else window.addEventListener("load",sendH);
+      setTimeout(sendH,80);
+      setTimeout(sendH,300);
+    }})();
+    </script>
+    </body></html>"""
+                _components.html(_wk_iframe, height=_wk_h, scrolling=False)
+
+        _render_cal_fragment(sch_df_main, today)
 
         st.markdown('<div class="sec-divider"></div>', unsafe_allow_html=True)
 
