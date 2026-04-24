@@ -604,14 +604,13 @@ MACHINE_MAP = {
     "LGES WA15 E81B": ["E81B"],
     "LGES NB E62B": ["E62B", "NB E62B"],
     "PNT PFP-100E": ["PFP", "100E"],
-    "EVB-CTS-C(원통형) 2170": ["2170"],
-    "EVB-CTS-C(원통형) 4680": ["4680", "AZ"],
-    "EVB-CTS-C(원통형) 4695": ["4695"],
+    "EVB-CTS-C(원통형) 2170": ["2170", "H19", "H52A"],
+    "EVB-CTS-C(원통형) 4680": ["4680", "AZ", "MP1", "MP2"],
+    "EVB-CTS-C(원통형) 4695": ["4695", "N32S2", "선행검증", "CTA"],
     "EVB-XFP-A(HJV)": ["HJV", "XFP"],
     "1호기": ["1호기"],
     "2호기": ["2호기"],
     "JH3": ["JH3"],
-    "선행검증라인CTA N32S2": ["N32S2", "선행검증", "CTA"],
 }
 
 MACHINE_LIST = ["(장비 자동감지)"] + list(MACHINE_MAP.keys())
