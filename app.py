@@ -3206,33 +3206,87 @@ with tab4:
 
     _SCAN_DB = _load_scan_db()
 
-    def _db_similarity(mean_b, std_b, edge_d, aspect, db):
-        """scan_db 통계 기반 z-score 유사도 계산 → (machine, score 0~1) 리스트"""
+    # ── cv2 지연 임포트 (Hu Moments용) ──
+    try:
+        import cv2 as _cv2
+        _cv2_ok = True
+    except Exception:
+        _cv2_ok = False
+
+    def _compute_hu(arr_u8):
+        """Canny → 최대 윤곽선 → Hu Moments 로그변환 7개"""
+        if not _cv2_ok:
+            return None
+        try:
+            blurred = _cv2.GaussianBlur(arr_u8, (5, 5), 0)
+            edges   = _cv2.Canny(blurred, 30, 100)
+            cnts, _ = _cv2.findContours(edges, _cv2.RETR_EXTERNAL, _cv2.CHAIN_APPROX_SIMPLE)
+            if not cnts:
+                return None
+            largest = max(cnts, key=_cv2.contourArea)
+            if _cv2.contourArea(largest) < 50:
+                return None
+            moms = _cv2.moments(largest)
+            hu   = _cv2.HuMoments(moms).flatten()
+            return [float(-_math.copysign(1.0, float(v)) * _math.log10(abs(float(v)) + 1e-10))
+                    for v in hu]
+        except Exception:
+            return None
+
+    def _hu_dist(hu_a, hu_b):
+        """Hu Moments 유클리드 거리 (처음 5개만, 잡음 많은 6~7번째 제외)"""
+        if hu_a is None or hu_b is None:
+            return None
+        return _math.sqrt(sum((a - b) ** 2 for a, b in zip(hu_a[:5], hu_b[:5])))
+
+    def _db_similarity_2tier(mean_b, std_b, edge_d, aspect, peaks_val, hu_q, db):
+        """
+        2-Tier 유사도 매칭
+        Tier-1: Hu Moments shape distance → Top-10 후보 추출
+        Tier-2: Multi-feature z-score (mean/std/edge/asp/peaks) 정밀 랭킹
+        """
         if db is None:
-            return []
-        results = []
-        query = {"mean": mean_b, "std": std_b, "edge": edge_d, "asp": aspect}
-        weights = {"mean": 1.0, "std": 1.2, "edge": 1.5, "asp": 2.0}
-        for mname, mdata in db["machines"].items():
-            stats = mdata.get("stats", {})
-            if not stats:
-                continue
-            dist = 0.0
-            for feat, w in weights.items():
-                if feat not in stats:
-                    continue
-                mu    = stats[feat]["mu"]
-                sigma = stats[feat]["sigma"] + 1e-6
-                dist += w * ((query[feat] - mu) / sigma) ** 2
-            # 거리 → 유사도 (가우시안 커널)
-            similarity = _math.exp(-dist / (2 * len(weights)))
-            results.append((mname, round(similarity, 4)))
-        results.sort(key=lambda x: x[1], reverse=True)
-        # 최대값으로 정규화
-        if results and results[0][1] > 0:
-            top = results[0][1]
-            results = [(m, round(min(s / top, 1.0) * 0.97, 4)) for m, s in results]
-        return results
+            return [], "DB 없음"
+
+        q_feats  = {"mean": mean_b, "std": std_b, "edge": edge_d, "asp": aspect, "peaks": peaks_val}
+        w_stats  = {"mean": 0.8, "std": 1.0, "edge": 1.5, "asp": 2.2, "peaks": 0.5}
+        machines = db["machines"]
+
+        # ── Tier-1: Hu 거리로 전체 랭킹 ──
+        t1 = []
+        for mname, mdata in machines.items():
+            hd = _hu_dist(hu_q, mdata.get("hu_mean"))
+            t1.append((mname, hd if hd is not None else 1e9))
+        t1.sort(key=lambda x: x[1])
+        top10 = [m for m, _ in t1[:10]]
+
+        # ── Tier-2: Top-10에 대해 Hu + 통계 결합 ──
+        t2 = []
+        for mname in top10:
+            mdata  = machines[mname]
+            stats  = mdata.get("stats", {})
+            # 통계 거리
+            sd = sum(w * ((q_feats[f] - stats[f]["mu"]) / (stats[f]["sigma"] + 1e-6)) ** 2
+                     for f, w in w_stats.items() if f in stats)
+            sd_norm = sd / max(len(w_stats), 1)
+            # Hu 거리 (정규화: 0~1 근사)
+            hd = _hu_dist(hu_q, mdata.get("hu_mean"))
+            hd_norm = min(hd / 10.0, 1.0) if hd is not None else 0.5
+            # 가중 결합 (형상 60%, 통계 40%)
+            dist = 0.60 * hd_norm + 0.40 * _math.tanh(sd_norm / 5.0)
+            sim  = _math.exp(-dist * 3.5)
+            t2.append((mname, round(sim, 4), mdata.get("cell_type", "?"),
+                       mdata.get("view_counts", {}), sd_norm, hd_norm))
+        t2.sort(key=lambda x: x[1], reverse=True)
+
+        # 정규화
+        if t2 and t2[0][1] > 0:
+            top_v = t2[0][1]
+            t2 = [(m, round(min(s / top_v, 1.0) * 0.97, 4), ct, vc, sd, hd)
+                  for m, s, ct, vc, sd, hd in t2]
+
+        method = f"2-Tier · DB {db.get('total_samples', 0)}장"
+        return t2, method
 
     # ── 헤더 ──
     st.markdown("""
@@ -3333,6 +3387,14 @@ with tab4:
         _edges   = _np.array(_img_gray.filter(_ImageFilter.FIND_EDGES))
         _edge_d  = float(_np.mean(_edges)) / 255.0
         _circ    = min(_w, _h) / max(_w, _h)
+        # 히스토그램 피크 수
+        _hist_arr, _ = _np.histogram(_arr.astype(float), bins=32, range=(0, 255))
+        _hist_n = _hist_arr / (_hist_arr.sum() + 1e-6)
+        _peaks_val = sum(1 for i in range(1, len(_hist_n) - 1)
+                        if _hist_n[i] > _hist_n[i-1] and _hist_n[i] > _hist_n[i+1] and _hist_n[i] > 0.02)
+        # Hu Moments (형상 기반)
+        _arr_u8 = _np.clip(_arr, 0, 255).astype(_np.uint8)
+        _hu_query = _compute_hu(_arr_u8)
 
         # ── 좌우 레이아웃 ──
         _sc_l, _sc_r = st.columns(2)
@@ -3398,18 +3460,21 @@ with tab4:
                 </div>
                 """, unsafe_allow_html=True)
             else:
-                # ── 유사도 스코어 계산 (scan_db 기반 → 없으면 휴리스틱 fallback) ──
-                _db_scores = _db_similarity(_mean_b, _std_b, _edge_d, _aspect, _SCAN_DB)
-                if _db_scores:
-                    _top3 = _db_scores[:3]
-                    _method = f"DB ({_SCAN_DB['total_samples']}장 학습)"
+                # ── 2-Tier 유사도 매칭 ──
+                _t2_results, _method = _db_similarity_2tier(
+                    _mean_b, _std_b, _edge_d, _aspect, _peaks_val, _hu_query, _SCAN_DB
+                )
+                if _t2_results:
+                    _top3_full = _t2_results[:3]
+                    # _top3_full = [(mname, score, cell_type, view_counts, sd_norm, hd_norm), ...]
+                    _top3 = [(r[0], r[1]) for r in _top3_full]
                 else:
                     # 휴리스틱 fallback
                     _scores = []
                     _is_radial = 0.85 <= _aspect <= 1.15
                     for _mname in MACHINE_LIST[1:]:
                         _s = 0.0
-                        if _is_radial and ("원통형" in _mname or "4680" in _mname or "4695" in _mname or "2170" in _mname):
+                        if _is_radial and ("원통형" in _mname):
                             _s += 0.25
                         if 60 <= _mean_b <= 170:
                             _s += 0.20
@@ -3422,47 +3487,57 @@ with tab4:
                         _scores.append((_mname, min(_s, 0.99)))
                     _scores.sort(key=lambda x: x[1], reverse=True)
                     _top3 = _scores[:3]
+                    _top3_full = [(m, s, "?", {}, 0, 0) for m, s in _top3]
                     _method = "휴리스틱"
 
-                # 최상위 매칭 표시
+                # ── BEST MATCH 카드 ──
+                _best_ct_icon = {"cylindrical": "🔋", "pouch": "📦",
+                                 "prismatic": "🔲", "jig": "🔧"}.get(
+                    _top3_full[0][2] if _top3_full else "?", "❓")
+                _hu_ok_str = "형상+통계" if _hu_query else "통계 기반"
                 st.markdown(f"""
                 <div style="background:#0f172a;border-radius:14px;padding:12px 14px;margin-bottom:8px">
                   <div style="color:#64748b;font-size:9px;font-weight:700;letter-spacing:2px;
-                  text-transform:uppercase;margin-bottom:8px">🎯 BEST MATCH · {_method}</div>
-                  <div style="color:#a78bfa;font-size:15px;font-weight:800;margin-bottom:2px">
-                    {_top3[0][0]}</div>
-                  <div style="color:#4ade80;font-size:12px;font-weight:600;margin-bottom:10px">
+                  text-transform:uppercase;margin-bottom:8px">🎯 BEST MATCH · {_hu_ok_str}</div>
+                  <div style="color:#a78bfa;font-size:16px;font-weight:800;margin-bottom:2px">
+                    {_best_ct_icon} {_top3[0][0]}</div>
+                  <div style="color:#4ade80;font-size:13px;font-weight:700;margin-bottom:10px">
                     유사도 {_top3[0][1]*100:.1f}%</div>
-                  <div style="background:#1e293b;border-radius:8px;padding:10px 14px;
-                  color:#475569;font-size:10px;line-height:1.6">
-                    📊 분석 근거<br>
-                    <span style="color:#64748b">밝기 {_mean_b:.0f} · 대비 {_std_b:.0f} · 엣지 {_edge_d:.3f} · 종횡비 {_aspect:.2f}</span>
+                  <div style="background:#1e293b;border-radius:8px;padding:8px 12px;
+                  color:#64748b;font-size:10px;line-height:1.7">
+                    <span style="color:#94a3b8">알고리즘:</span> {_method}<br>
+                    <span style="color:#94a3b8">밝기</span> {_mean_b:.0f}
+                    · <span style="color:#94a3b8">대비</span> {_std_b:.0f}
+                    · <span style="color:#94a3b8">엣지</span> {_edge_d:.3f}
+                    · <span style="color:#94a3b8">종횡비</span> {_aspect:.2f}
                   </div>
                 </div>
                 """, unsafe_allow_html=True)
 
-                # 상위 3개 순위
+                # ── Top-3 순위 바 ──
                 st.markdown("""
                 <div style="background:white;border-radius:12px;padding:14px 16px;
                 box-shadow:0 2px 8px rgba(0,0,0,0.07)">
                   <div style="font-size:9px;font-weight:700;color:#7c3aed;letter-spacing:2px;
-                  text-transform:uppercase;margin-bottom:12px">📊 유사 모델 순위</div>
+                  text-transform:uppercase;margin-bottom:12px">📊 유사 모델 순위 Top-3</div>
                 """, unsafe_allow_html=True)
                 _medals = ["🥇", "🥈", "🥉"]
                 _bar_colors = ["#a855f7", "#6366f1", "#8b5cf6"]
                 for _ri, (_mn, _ms) in enumerate(_top3):
                     _pct = _ms * 100
+                    _ct_icon = {"cylindrical": "🔋", "pouch": "📦", "prismatic": "🔲",
+                                "jig": "🔧"}.get(_top3_full[_ri][2], "")
                     st.markdown(f"""
                     <div style="margin-bottom:12px">
                       <div style="display:flex;justify-content:space-between;
                       align-items:center;margin-bottom:4px">
-                        <span style="font-size:11px;font-weight:600">{_medals[_ri]} {_mn}</span>
+                        <span style="font-size:11px;font-weight:600">{_medals[_ri]} {_ct_icon} {_mn}</span>
                         <span style="font-size:12px;font-weight:700;color:{_bar_colors[_ri]}">{_pct:.1f}%</span>
                       </div>
                       <div style="background:#f3f4f6;border-radius:6px;height:8px;overflow:hidden">
                         <div style="background:linear-gradient(90deg,{_bar_colors[_ri]},
                         {_bar_colors[_ri]}99);width:{int(_pct)}%;height:8px;
-                        border-radius:6px;transition:width 0.5s"></div>
+                        border-radius:6px"></div>
                       </div>
                     </div>
                     """, unsafe_allow_html=True)
@@ -3495,12 +3570,151 @@ with tab4:
                 """, unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
-            # 안내 메시지
+            # ═══════════════════════════════════════════════════════
+            # ── 심층 분석 UI (유사도 결과 아래) ──
+            # ═══════════════════════════════════════════════════════
+            st.markdown('<div style="margin-top:18px"></div>', unsafe_allow_html=True)
             st.markdown("""
-            <div style="background:linear-gradient(135deg,rgba(168,85,247,0.08),
-            rgba(99,102,241,0.08));border:1px solid rgba(168,85,247,0.2);
-            border-radius:12px;padding:12px 16px;margin-top:10px;font-size:11px;color:#6b7280">
-              💡 <b style="color:#7c3aed">현재 데모 버전</b>입니다. 학습 이미지 DB가 연결되면
-              실제 X-RAY 이미지 비교 및 정밀 유사도 분석이 가능합니다.
+            <div style="background:#0f172a;border-radius:14px;padding:14px 16px 10px;margin-bottom:12px">
+              <div style="color:#64748b;font-size:9px;font-weight:700;letter-spacing:2px;
+              text-transform:uppercase;margin-bottom:2px">🔍 DEEP ANALYSIS</div>
+              <div style="color:#94a3b8;font-size:10px">업로드 이미지 피처 vs 매칭 장비 분포 비교</div>
             </div>
             """, unsafe_allow_html=True)
+
+            # ── 피처 비교 바 차트 (업로드 vs Top-1 장비 평균) ──
+            if _SCAN_DB and _top3_full:
+                _best_mname = _top3_full[0][0]
+                _best_mdata = _SCAN_DB["machines"].get(_best_mname, {})
+                _best_stats = _best_mdata.get("stats", {})
+
+                _feat_labels = {
+                    "mean":  ("평균 밝기", _mean_b,  0, 255,   "#60a5fa"),
+                    "std":   ("명암 대비", _std_b,   0, 128,   "#34d399"),
+                    "edge":  ("엣지 밀도", _edge_d*100, 0, 15, "#f59e0b"),
+                    "asp":   ("종횡비×100", _aspect*100, 50, 200, "#a78bfa"),
+                    "peaks": ("히스토그램 피크", _peaks_val, 0, 8, "#f472b6"),
+                }
+                _da_cols = st.columns(len(_feat_labels))
+                for _ci, (_fk, (_flbl, _fval, _fmin, _fmax, _fcol)) in enumerate(_feat_labels.items()):
+                    _ref_mu    = _best_stats.get(_fk, {}).get("mu", None)
+                    _ref_sigma = _best_stats.get(_fk, {}).get("sigma", 1.0)
+                    _ref_stat_min = _best_stats.get(_fk, {}).get("min", _fmin)
+                    _ref_stat_max = _best_stats.get(_fk, {}).get("max", _fmax)
+                    # 실제 피처값 (edge는 ×100 했으니 mu도 ×100)
+                    _fval_raw = _fval / 100 if _fk in ("edge",) else (
+                                _fval / 100 if _fk == "asp" else _fval)
+                    if _fk == "asp":
+                        _fval_raw = _aspect
+                    elif _fk == "edge":
+                        _fval_raw = _edge_d
+                    elif _fk == "peaks":
+                        _fval_raw = _peaks_val
+
+                    # 백분율 (표시용)
+                    _range = max(_fmax - _fmin, 0.01)
+                    _pct_q   = min(max((_fval - _fmin) / _range * 100, 0), 100)
+                    _pct_ref = min(max((_ref_mu * (100 if _fk == "edge" else (100 if _fk == "asp" else 1)) - _fmin) / _range * 100, 0), 100) if _ref_mu else 50
+
+                    # 실제 표시 pct
+                    _pct_q2   = min(max((_fval_raw / (_fmax / (100 if _fk in ("edge","asp") else 1) or 1)) * 100, 0), 100) if _fk in ("edge","asp") else _pct_q
+                    _ref_pct2 = min(max((_ref_mu / (_fmax / (100 if _fk in ("edge","asp") else 1) or 1)) * 100, 0), 100) if (_ref_mu and _fk in ("edge","asp")) else _pct_ref
+
+                    # z-score 판정
+                    _z = abs(_fval_raw - _ref_mu) / (_ref_sigma + 1e-6) if _ref_mu is not None else 0
+                    _z_color = "#4ade80" if _z < 1.0 else ("#f59e0b" if _z < 2.0 else "#f87171")
+                    _z_label = "✓ 정상" if _z < 1.0 else ("△ 주의" if _z < 2.0 else "✗ 이탈")
+
+                    _da_cols[_ci].markdown(f"""
+                    <div style="background:#1e293b;border-radius:10px;padding:10px 8px 8px;text-align:center">
+                      <div style="color:#64748b;font-size:8px;text-transform:uppercase;
+                      letter-spacing:1px;margin-bottom:6px">{_flbl}</div>
+                      <div style="color:white;font-size:13px;font-weight:800;margin-bottom:2px">{_fval:.2f}</div>
+                      <div style="color:#475569;font-size:8px;margin-bottom:6px">
+                        참조: {_ref_mu:.2f}±{_ref_sigma:.2f}</div>
+                      <div style="background:#0f172a;border-radius:4px;height:6px;overflow:hidden;margin-bottom:4px">
+                        <div style="background:{_fcol};width:{int(_pct_q)}%;height:6px;border-radius:4px"></div>
+                      </div>
+                      <div style="color:{_z_color};font-size:9px;font-weight:700">{_z_label}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                # ── Hu Moments 형상 유사도 시각화 ──
+                st.markdown('<div style="margin-top:12px"></div>', unsafe_allow_html=True)
+                _hu_ref = _best_mdata.get("hu_mean")
+                if _hu_query and _hu_ref:
+                    _hu_dist_val = _hu_dist(_hu_query, _hu_ref)
+                    _hu_sim_pct  = max(0, min(100, (1 - _hu_dist_val / 15.0) * 100))
+                    _hu_color    = "#4ade80" if _hu_sim_pct > 70 else ("#f59e0b" if _hu_sim_pct > 40 else "#f87171")
+                    _hu_bar_w    = int(_hu_sim_pct)
+                    _hu_cols = st.columns([1, 2])
+                    _hu_cols[0].markdown(f"""
+                    <div style="background:#1e293b;border-radius:10px;padding:12px 14px;text-align:center;height:90px;
+                    display:flex;flex-direction:column;justify-content:center">
+                      <div style="color:#64748b;font-size:8px;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">형상 유사도</div>
+                      <div style="color:{_hu_color};font-size:22px;font-weight:900">{_hu_sim_pct:.0f}%</div>
+                      <div style="color:#475569;font-size:9px">Hu Moments</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    # 7개 Hu moment 비교 막대
+                    _hu_pairs_html = ""
+                    for _hi in range(min(7, len(_hu_query), len(_hu_ref))):
+                        _hq_v = _hu_query[_hi]
+                        _hr_v = _hu_ref[_hi]
+                        _hq_pct = min(abs(_hq_v) / 15 * 100, 100)
+                        _hr_pct = min(abs(_hr_v) / 15 * 100, 100)
+                        _diff   = abs(_hq_v - _hr_v)
+                        _hc     = "#4ade80" if _diff < 1.0 else ("#f59e0b" if _diff < 3.0 else "#f87171")
+                        _hu_pairs_html += f"""
+                        <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+                          <div style="color:#64748b;font-size:8px;width:20px">M{_hi+1}</div>
+                          <div style="flex:1;background:#0f172a;border-radius:3px;height:5px;overflow:hidden">
+                            <div style="background:#60a5fa;width:{int(_hq_pct)}%;height:5px;border-radius:3px"></div>
+                          </div>
+                          <div style="flex:1;background:#0f172a;border-radius:3px;height:5px;overflow:hidden">
+                            <div style="background:#94a3b8;width:{int(_hr_pct)}%;height:5px;border-radius:3px"></div>
+                          </div>
+                          <div style="color:{_hc};font-size:8px;width:24px">±{_diff:.1f}</div>
+                        </div>"""
+                    _hu_cols[1].markdown(f"""
+                    <div style="background:#1e293b;border-radius:10px;padding:10px 14px">
+                      <div style="color:#64748b;font-size:8px;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">
+                        Hu Moment 벡터 비교 &nbsp;
+                        <span style="color:#60a5fa">■</span> 업로드 &nbsp;
+                        <span style="color:#94a3b8">■</span> {_best_mname[:20]}
+                      </div>
+                      {_hu_pairs_html}
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.markdown(f"""
+                    <div style="background:#1e293b;border-radius:10px;padding:10px 14px;
+                    color:#475569;font-size:10px;text-align:center">
+                      {'🔘 Hu Moments 계산 중 윤곽선을 찾지 못했습니다 (배경이 복잡하거나 저대비 이미지)' if not _hu_query else '🔘 참조 형상 데이터 없음'}
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                # ── 매칭 장비 뷰 타입 분포 ──
+                _vc = _best_mdata.get("view_counts", {})
+                if _vc:
+                    _vc_total = sum(_vc.values())
+                    _vc_html = ""
+                    _vc_color_map = {
+                        "cross_section": "#a78bfa", "top": "#60a5fa", "bottom": "#34d399",
+                        "side": "#f59e0b", "stack": "#f472b6", "eol": "#fb923c",
+                        "full_label": "#38bdf8", "msa": "#4ade80", "unknown": "#475569",
+                    }
+                    for _vt, _vn in sorted(_vc.items(), key=lambda x: -x[1]):
+                        _vp = _vn / _vc_total * 100
+                        _vc_html += (f'<span style="background:{_vc_color_map.get(_vt,"#475569")}22;'
+                                     f'color:{_vc_color_map.get(_vt,"#94a3b8")};border:1px solid '
+                                     f'{_vc_color_map.get(_vt,"#475569")}44;border-radius:6px;'
+                                     f'padding:2px 7px;font-size:9px;font-weight:700;margin:2px">'
+                                     f'{_vt} {_vp:.0f}%</span>')
+                    st.markdown(f"""
+                    <div style="background:#1e293b;border-radius:10px;padding:10px 14px;margin-top:8px">
+                      <div style="color:#64748b;font-size:8px;text-transform:uppercase;
+                      letter-spacing:1px;margin-bottom:6px">📁 {_best_mname} — 학습 뷰 분포 ({_vc_total}장)</div>
+                      <div>{_vc_html}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
