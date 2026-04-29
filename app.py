@@ -944,7 +944,7 @@ if _cq:
 # ──────────────────────────────────────────────
 # 탭 레이아웃
 # ──────────────────────────────────────────────
-tab1, tab2, tab3, tab4 = st.tabs(["  📊  학습 이력  ", "  🖥️  트레이닝 PC 자리  ", "  📅  일정 & 메모  ", "  🏟️  우리만의 일정  "])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["  📊  학습 이력  ", "  🖥️  트레이닝 PC 자리  ", "  📅  일정 & 메모  ", "  🏟️  우리만의 일정  ", "  🔬  샘플 스캔  "])
 
 # 캘린더 이벤트 클릭 후 tab3 자동 이동
 if st.session_state.pop("_goto_tab3", False):
@@ -3157,3 +3157,221 @@ with tab4:
                 for it in show_items
             ]
             _news_cards(translated_anime, "애니/만화 소식을 불러올 수 없어요.")
+
+# ──────────────────────────────────────────────
+# TAB 5 — 샘플 스캔 분석
+# ──────────────────────────────────────────────
+with tab5:
+    import hashlib as _hashlib
+    from PIL import Image as _PILImage, ImageFilter as _ImageFilter
+    import numpy as _np
+    import io as _io
+
+    # ── 헤더 ──
+    st.markdown("""
+    <div style="background:linear-gradient(135deg,#1e1b4b,#312e81);border-radius:18px;
+    padding:20px 24px 16px;margin-bottom:16px;box-shadow:0 4px 24px rgba(0,0,0,0.25)">
+      <div style="color:#a78bfa;font-size:10px;font-weight:700;letter-spacing:2px;
+      text-transform:uppercase;margin-bottom:6px">🔬 SAMPLE SCAN ANALYZER</div>
+      <div style="color:white;font-size:18px;font-weight:800;margin-bottom:4px">배터리 샘플 유사도 분석</div>
+      <div style="color:#94a3b8;font-size:11px">X-RAY 이미지를 업로드하면 가장 유사한 학습 모델을 찾아드립니다</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── 업로드 ──
+    _scan_file = st.file_uploader(
+        "📁 X-RAY 이미지 업로드 (PNG · JPG · BMP · TIFF)",
+        type=["png", "jpg", "jpeg", "bmp", "tif", "tiff"],
+        key="scan_upload",
+    )
+
+    # 새 파일 업로드 시 이전 스캔 결과 초기화
+    if _scan_file is not None:
+        _fkey = f"{_scan_file.name}_{_scan_file.size}"
+        if st.session_state.get("_scan_fkey") != _fkey:
+            st.session_state["_scan_fkey"] = _fkey
+            st.session_state["scan_done"] = False
+
+    if _scan_file is None:
+        st.markdown("""
+        <div style="background:white;border-radius:18px;padding:60px 24px;
+        text-align:center;box-shadow:0 2px 12px rgba(0,0,0,0.07);margin-top:8px">
+          <div style="font-size:52px;margin-bottom:14px">🔬</div>
+          <div style="font-size:14px;font-weight:700;color:#374151;margin-bottom:6px">
+            이미지를 업로드해주세요</div>
+          <div style="font-size:11px;color:#9ca3af;line-height:1.7">
+            배터리 X-RAY 이미지(단면·측면)를 업로드하면<br>
+            기존 학습 데이터와 유사도를 비교해 드립니다
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        _img     = _PILImage.open(_scan_file)
+        _img_rgb = _img.convert("RGB")
+        _img_gray = _img.convert("L")
+        _arr     = _np.array(_img_gray)
+        _w, _h   = _img.size
+
+        # ── 이미지 특성 계산 ──
+        _mean_b  = float(_np.mean(_arr))
+        _std_b   = float(_np.std(_arr))
+        _aspect  = _w / _h
+        _edges   = _np.array(_img_gray.filter(_ImageFilter.FIND_EDGES))
+        _edge_d  = float(_np.mean(_edges)) / 255.0
+        _circ    = min(_w, _h) / max(_w, _h)
+
+        # ── 좌우 레이아웃 ──
+        _sc_l, _sc_r = st.columns(2)
+
+        # ── 왼쪽: 업로드 이미지 ──
+        with _sc_l:
+            st.markdown("""
+            <div style="background:#0f172a;border-radius:14px;padding:10px 12px 6px;margin-bottom:8px">
+              <div style="color:#64748b;font-size:9px;font-weight:700;letter-spacing:2px;
+              text-transform:uppercase;margin-bottom:6px">📤 UPLOADED IMAGE</div>
+            """, unsafe_allow_html=True)
+            st.image(_img_rgb, use_column_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+
+            # 이미지 기본 정보
+            st.markdown(f"""
+            <div style="background:white;border-radius:12px;padding:14px 16px;
+            box-shadow:0 2px 8px rgba(0,0,0,0.07)">
+              <div style="font-size:9px;font-weight:700;color:#7c3aed;letter-spacing:2px;
+              text-transform:uppercase;margin-bottom:10px">📋 IMAGE INFO</div>
+              <table style="width:100%;font-size:11px;border-collapse:collapse">
+                <tr><td style="color:#6b7280;padding:4px 0;border-bottom:1px solid #f3f4f6">해상도</td>
+                    <td style="font-weight:600;text-align:right;border-bottom:1px solid #f3f4f6">{_w} × {_h} px</td></tr>
+                <tr><td style="color:#6b7280;padding:4px 0;border-bottom:1px solid #f3f4f6">평균 밝기</td>
+                    <td style="font-weight:600;text-align:right;border-bottom:1px solid #f3f4f6">{_mean_b:.1f} / 255</td></tr>
+                <tr><td style="color:#6b7280;padding:4px 0;border-bottom:1px solid #f3f4f6">명암 대비</td>
+                    <td style="font-weight:600;text-align:right;border-bottom:1px solid #f3f4f6">{_std_b:.1f}</td></tr>
+                <tr><td style="color:#6b7280;padding:4px 0;border-bottom:1px solid #f3f4f6">종횡비</td>
+                    <td style="font-weight:600;text-align:right;border-bottom:1px solid #f3f4f6">{"정방형(단면)" if 0.85<=_aspect<=1.15 else ("가로형" if _aspect>1.15 else "세로형(측면)")}</td></tr>
+                <tr><td style="color:#6b7280;padding:4px 0">엣지 밀도</td>
+                    <td style="font-weight:600;text-align:right">{"높음 (복잡한 구조)" if _edge_d>0.06 else ("보통" if _edge_d>0.03 else "낮음")}</td></tr>
+              </table>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # ── 오른쪽: 유사 모델 ──
+        with _sc_r:
+            if st.button("🔍  스캔 시작", type="primary", use_container_width=True, key="scan_btn"):
+                st.session_state["scan_done"] = True
+
+            if not st.session_state.get("scan_done"):
+                st.markdown("""
+                <div style="background:white;border-radius:14px;padding:48px 24px;
+                text-align:center;box-shadow:0 2px 8px rgba(0,0,0,0.07);margin-top:8px">
+                  <div style="font-size:36px;margin-bottom:10px">🎯</div>
+                  <div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:4px">
+                    스캔 준비 완료</div>
+                  <div style="font-size:11px;color:#9ca3af">
+                    좌측 버튼을 눌러 분석을 시작하세요</div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                # ── 유사도 스코어 계산 (휴리스틱) ──
+                _scores = []
+                _is_radial = 0.85 <= _aspect <= 1.15  # 정방형 = 단면(Radial) 가능성
+                for _mname in MACHINE_LIST[1:]:
+                    _s = 0.0
+                    # 원통형 배터리: 단면이면 점수 부여
+                    if _is_radial and ("원통형" in _mname or "4680" in _mname or "4695" in _mname or "2170" in _mname):
+                        _s += 0.25
+                    # 밝기 범위 (X-RAY 특성: 60~170)
+                    if 60 <= _mean_b <= 170:
+                        _s += 0.20
+                    # 고대비 = 내부 구조 선명
+                    if _std_b > 40:
+                        _s += 0.15
+                    # 엣지 밀도 (복잡한 내부 구조)
+                    if _edge_d > 0.04:
+                        _s += 0.10
+                    # 장비별 해시 기반 변동 (재현 가능한 랜덤)
+                    _h16 = int(_hashlib.md5((_mname + str(round(_mean_b, -1))).encode()).hexdigest()[:6], 16)
+                    _s += (_h16 / 16777215.0) * 0.30
+                    _scores.append((_mname, min(_s, 0.99)))
+
+                _scores.sort(key=lambda x: x[1], reverse=True)
+                _top3 = _scores[:3]
+
+                # 최상위 매칭 표시
+                st.markdown(f"""
+                <div style="background:#0f172a;border-radius:14px;padding:12px 14px;margin-bottom:8px">
+                  <div style="color:#64748b;font-size:9px;font-weight:700;letter-spacing:2px;
+                  text-transform:uppercase;margin-bottom:8px">🎯 BEST MATCH</div>
+                  <div style="color:#a78bfa;font-size:15px;font-weight:800;margin-bottom:2px">
+                    {_top3[0][0]}</div>
+                  <div style="color:#4ade80;font-size:12px;font-weight:600;margin-bottom:10px">
+                    유사도 {_top3[0][1]*100:.1f}%</div>
+                  <div style="background:#1e293b;border-radius:8px;padding:18px;
+                  text-align:center;color:#475569;font-size:10px">
+                    📁 학습 이미지 DB 연결 시<br>실제 이미지가 표시됩니다
+                  </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # 상위 3개 순위
+                st.markdown("""
+                <div style="background:white;border-radius:12px;padding:14px 16px;
+                box-shadow:0 2px 8px rgba(0,0,0,0.07)">
+                  <div style="font-size:9px;font-weight:700;color:#7c3aed;letter-spacing:2px;
+                  text-transform:uppercase;margin-bottom:12px">📊 유사 모델 순위</div>
+                """, unsafe_allow_html=True)
+                _medals = ["🥇", "🥈", "🥉"]
+                _bar_colors = ["#a855f7", "#6366f1", "#8b5cf6"]
+                for _ri, (_mn, _ms) in enumerate(_top3):
+                    _pct = _ms * 100
+                    st.markdown(f"""
+                    <div style="margin-bottom:12px">
+                      <div style="display:flex;justify-content:space-between;
+                      align-items:center;margin-bottom:4px">
+                        <span style="font-size:11px;font-weight:600">{_medals[_ri]} {_mn}</span>
+                        <span style="font-size:12px;font-weight:700;color:{_bar_colors[_ri]}">{_pct:.1f}%</span>
+                      </div>
+                      <div style="background:#f3f4f6;border-radius:6px;height:8px;overflow:hidden">
+                        <div style="background:linear-gradient(90deg,{_bar_colors[_ri]},
+                        {_bar_colors[_ri]}99);width:{int(_pct)}%;height:8px;
+                        border-radius:6px;transition:width 0.5s"></div>
+                      </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                st.markdown("</div>", unsafe_allow_html=True)
+
+        # ── 하단: 자동 분석 결과 (GLIMPSE 스타일) ──
+        if st.session_state.get("scan_done"):
+            st.markdown('<div style="margin-top:14px"></div>', unsafe_allow_html=True)
+            st.markdown("""
+            <div style="background:#0f172a;border-radius:14px;padding:14px 16px 10px">
+              <div style="color:#64748b;font-size:9px;font-weight:700;letter-spacing:2px;
+              text-transform:uppercase;margin-bottom:12px">⚙️ AUTOMATED ANALYSIS RESULTS</div>
+            """, unsafe_allow_html=True)
+            _m1, _m2, _m3, _m4, _m5 = st.columns(5)
+            _analysis_items = [
+                ("해상도", f"{_w}×{_h}", "px", _m1),
+                ("평균 밝기", f"{_mean_b:.1f}", "/ 255", _m2),
+                ("명암 대비", f"{_std_b:.1f}", "σ", _m3),
+                ("엣지 밀도", f"{_edge_d:.3f}", "", _m4),
+                ("추정 유형", "단면" if 0.85<=_aspect<=1.15 else "측면", "", _m5),
+            ]
+            for _lbl, _val, _unit, _col in _analysis_items:
+                _col.markdown(f"""
+                <div style="background:#1e293b;border-radius:10px;padding:10px 8px;text-align:center">
+                  <div style="color:#64748b;font-size:9px;text-transform:uppercase;
+                  letter-spacing:1px;margin-bottom:4px">{_lbl}</div>
+                  <div style="color:white;font-size:15px;font-weight:800">{_val}</div>
+                  <div style="color:#475569;font-size:9px">{_unit}</div>
+                </div>
+                """, unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+
+            # 안내 메시지
+            st.markdown("""
+            <div style="background:linear-gradient(135deg,rgba(168,85,247,0.08),
+            rgba(99,102,241,0.08));border:1px solid rgba(168,85,247,0.2);
+            border-radius:12px;padding:12px 16px;margin-top:10px;font-size:11px;color:#6b7280">
+              💡 <b style="color:#7c3aed">현재 데모 버전</b>입니다. 학습 이미지 DB가 연결되면
+              실제 X-RAY 이미지 비교 및 정밀 유사도 분석이 가능합니다.
+            </div>
+            """, unsafe_allow_html=True)
