@@ -944,7 +944,7 @@ if _cq:
 # ──────────────────────────────────────────────
 # 탭 레이아웃
 # ──────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["  📊  학습 이력  ", "  🖥️  트레이닝 PC 자리  ", "  📅  일정 & 메모  ", "  🏟️  우리만의 일정  ", "  🔬  샘플 스캔  "])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["  📊  학습 이력  ", "  🖥️  트레이닝 PC 자리  ", "  📅  일정 & 메모  ", "  🔬  샘플 스캔  ", "  🔒  "])
 
 # 캘린더 이벤트 클릭 후 tab3 자동 이동
 if st.session_state.pop("_goto_tab3", False):
@@ -3006,166 +3006,192 @@ def _news_cards(items, empty_msg="소식을 불러올 수 없어요."):
         )
     st.markdown(html, unsafe_allow_html=True)
 
-with tab4:
-    today_str4 = _today_kst().strftime("%Y-%m-%d")
-    col4l, col4r = st.columns([1.1, 1.9], gap="large")
-
-    # ── 왼쪽: 스포츠 경기 ──
-    with col4l:
-
-        # ── MLB 오늘의 경기 ──
-        st.markdown('<div class="sec-label">⚾ MLB 오늘의 경기</div>', unsafe_allow_html=True)
-        mlb_games = fetch_mlb_games(today_str4)
-
-        if not mlb_games:
-            st.markdown('<div class="sec-alert">오늘 경기 정보를 가져올 수 없어요.</div>', unsafe_allow_html=True)
-        else:
-            for g in mlb_games:
-                if g["status"] == "Final":
-                    s_badge, s_color = "종료", "#6b7280"
-                elif g["status"] == "Live":
-                    half = "▲" if "top" in g["inning_half"].lower() else "▼"
-                    inn  = f" {half}{g['inning']}회" if g["inning"] else ""
-                    s_badge, s_color = f"LIVE{inn}", "#dc2626"
+with tab5:
+    if not st.session_state.get("_secret_tab_auth"):
+        st.markdown("""
+        <div style="padding:80px 24px;text-align:center">
+          <div style="font-size:64px;margin-bottom:16px">🔒</div>
+          <div style="font-size:16px;font-weight:700;color:#374151;margin-bottom:8px">이 탭은 잠겨 있어요</div>
+          <div style="font-size:13px;color:#9ca3af;margin-bottom:24px">비밀번호를 입력하면 열립니다</div>
+        </div>
+        """, unsafe_allow_html=True)
+        _col_pw = st.columns([1, 2, 1])[1]
+        with _col_pw:
+            _pwd_in = st.text_input(
+                "비밀번호", placeholder="비밀번호 입력", type="password",
+                key="secret_pwd_input", label_visibility="collapsed"
+            )
+            if st.button("🔓 확인", use_container_width=True, key="secret_pwd_btn"):
+                if _pwd_in == "DL":
+                    st.session_state["_secret_tab_auth"] = True
+                    st.rerun()
                 else:
-                    s_badge, s_color = g["game_time_kst"] or "예정", "#7c3aed"
-
-                ap_label = _pitcher_label(g["away_pitcher_id"], g["away_pitcher"])
-                hp_label = _pitcher_label(g["home_pitcher_id"], g["home_pitcher"])
-                pitcher_line = (
-                    '<div style="font-size:11px;color:#6b7280;margin-top:5px">'
-                    '선발: ' + ap_label + ' vs ' + hp_label + '</div>'
-                )
-
-                if g["status"] in ("Live", "Final") and g["home_score"] != "":
-                    score_part = (
-                        '<div style="font-size:24px;font-weight:900;color:#374151;text-align:center;margin:6px 0">'
-                        + str(g["away_score"]) + ' : ' + str(g["home_score"]) + '</div>'
-                        + pitcher_line
+                    st.error("비밀번호가 틀렸습니다 ❌")
+    else:
+        today_str4 = _today_kst().strftime("%Y-%m-%d")
+        col4l, col4r = st.columns([1.1, 1.9], gap="large")
+    
+        # ── 왼쪽: 스포츠 경기 ──
+        with col4l:
+    
+            # ── MLB 오늘의 경기 ──
+            st.markdown('<div class="sec-label">⚾ MLB 오늘의 경기</div>', unsafe_allow_html=True)
+            mlb_games = fetch_mlb_games(today_str4)
+    
+            if not mlb_games:
+                st.markdown('<div class="sec-alert">오늘 경기 정보를 가져올 수 없어요.</div>', unsafe_allow_html=True)
+            else:
+                for g in mlb_games:
+                    if g["status"] == "Final":
+                        s_badge, s_color = "종료", "#6b7280"
+                    elif g["status"] == "Live":
+                        half = "▲" if "top" in g["inning_half"].lower() else "▼"
+                        inn  = f" {half}{g['inning']}회" if g["inning"] else ""
+                        s_badge, s_color = f"LIVE{inn}", "#dc2626"
+                    else:
+                        s_badge, s_color = g["game_time_kst"] or "예정", "#7c3aed"
+    
+                    ap_label = _pitcher_label(g["away_pitcher_id"], g["away_pitcher"])
+                    hp_label = _pitcher_label(g["home_pitcher_id"], g["home_pitcher"])
+                    pitcher_line = (
+                        '<div style="font-size:11px;color:#6b7280;margin-top:5px">'
+                        '선발: ' + ap_label + ' vs ' + hp_label + '</div>'
                     )
-                else:
-                    score_part = pitcher_line
-
-                away_e = html_lib.escape(_mlb_team_display(g["away"]))
-                home_e = html_lib.escape(_mlb_team_display(g["home"]))
-                # 경기 중/종료시만 당일 성적 표시
-                kr_stats = (
-                    fetch_game_kr_stats(g["game_pk"], g["our_id"])
-                    if g["status"] in ("Live", "Final") else ""
-                )
-                st.markdown(
-                    '<div style="background:white;border-radius:16px;padding:14px 18px;'
-                    'box-shadow:0 2px 12px rgba(0,0,0,0.07);margin-bottom:10px;'
-                    'border-left:4px solid ' + s_color + '">'
-                    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
-                    '<span style="font-size:12px;font-weight:700;color:' + s_color + '">' + g["our_ko"] + '</span>'
-                    '<span style="background:' + s_color + ';color:white;font-size:10px;padding:2px 9px;border-radius:10px;font-weight:700">' + s_badge + '</span>'
-                    '</div>'
-                    '<div style="font-size:13px;color:#374151;font-weight:600">' + away_e + ' @ ' + home_e + '</div>'
-                    + score_part
-                    + kr_stats +
-                    '</div>',
-                    unsafe_allow_html=True
-                )
-
-        # ── KBO 경기 ──
-        st.markdown('<div class="sec-label" style="margin-top:14px">⚾ KBO (한화·롯데)</div>', unsafe_allow_html=True)
-        kbo_items = _get_sport_schedule_items(_KBO_SCHEDULE, _KBO_TARGET, _today_kst())
-        any_kbo_today = any(it["is_today"] for it in kbo_items)
-        kbo_live = fetch_kbo_live_today(today_str4) if any_kbo_today else []
-        if kbo_items:
-            for it in kbo_items:
-                kg = _overlay_naver_pitchers(it["game"])
-                lbl, is_td = it["label"], it["is_today"]
-                lbl_color = "#dc2626" if is_td else "#9ca3af"
-                st.markdown(
-                    '<div style="font-size:10px;color:' + lbl_color + ';font-weight:' + ("700" if is_td else "400") + ';margin:6px 0 2px 2px">'
-                    + ("🔴 " if is_td else "📅 ") + html_lib.escape(lbl) + '</div>',
-                    unsafe_allow_html=True
-                )
-                st.markdown(_sport_card(kg, is_td, kbo_live, "#e65c00"), unsafe_allow_html=True)
-            if any_kbo_today:
-                lineup_hint = fetch_lineup_news("한화이글스 OR 롯데자이언츠")
-                if lineup_hint:
+    
+                    if g["status"] in ("Live", "Final") and g["home_score"] != "":
+                        score_part = (
+                            '<div style="font-size:24px;font-weight:900;color:#374151;text-align:center;margin:6px 0">'
+                            + str(g["away_score"]) + ' : ' + str(g["home_score"]) + '</div>'
+                            + pitcher_line
+                        )
+                    else:
+                        score_part = pitcher_line
+    
+                    away_e = html_lib.escape(_mlb_team_display(g["away"]))
+                    home_e = html_lib.escape(_mlb_team_display(g["home"]))
+                    # 경기 중/종료시만 당일 성적 표시
+                    kr_stats = (
+                        fetch_game_kr_stats(g["game_pk"], g["our_id"])
+                        if g["status"] in ("Live", "Final") else ""
+                    )
                     st.markdown(
-                        '<div style="font-size:11px;color:#6b7280;background:#f9fafb;'
-                        'border-radius:8px;padding:8px 12px;margin-top:2px">'
-                        '📋 ' + html_lib.escape(lineup_hint) + '</div>',
+                        '<div style="background:white;border-radius:16px;padding:14px 18px;'
+                        'box-shadow:0 2px 12px rgba(0,0,0,0.07);margin-bottom:10px;'
+                        'border-left:4px solid ' + s_color + '">'
+                        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
+                        '<span style="font-size:12px;font-weight:700;color:' + s_color + '">' + g["our_ko"] + '</span>'
+                        '<span style="background:' + s_color + ';color:white;font-size:10px;padding:2px 9px;border-radius:10px;font-weight:700">' + s_badge + '</span>'
+                        '</div>'
+                        '<div style="font-size:13px;color:#374151;font-weight:600">' + away_e + ' @ ' + home_e + '</div>'
+                        + score_part
+                        + kr_stats +
+                        '</div>',
                         unsafe_allow_html=True
                     )
-        else:
-            st.markdown('<div class="sec-alert">5월 이후 일정은 추후 업데이트 예정</div>', unsafe_allow_html=True)
-
-        # ── K리그2 경기 ──
-        st.markdown('<div class="sec-label" style="margin-top:14px">⚽ K리그2 (수원삼성·수원FC)</div>', unsafe_allow_html=True)
-        kl2_items = _get_sport_schedule_items(_KL2_SCHEDULE, _KL2_TARGET, _today_kst())
-        if kl2_items:
-            for it in kl2_items:
-                kg, lbl, is_td = it["game"], it["label"], it["is_today"]
-                lbl_color = "#dc2626" if is_td else "#9ca3af"
-                st.markdown(
-                    '<div style="font-size:10px;color:' + lbl_color + ';font-weight:' + ("700" if is_td else "400") + ';margin:6px 0 2px 2px">'
-                    + ("🔴 " if is_td else "📅 ") + html_lib.escape(lbl) + '</div>',
-                    unsafe_allow_html=True
-                )
-                st.markdown(_sport_card(kg, is_td, [], "#1a7f4b"), unsafe_allow_html=True)
-        else:
-            st.markdown('<div class="sec-alert">5월 이후 일정은 추후 업데이트 예정</div>', unsafe_allow_html=True)
-
-    # ── 오른쪽: 소식 ──
-    with col4r:
-        st.markdown('<div class="sec-label">📰 최신 소식</div>', unsafe_allow_html=True)
-        ntab1, ntab2, ntab3 = st.tabs(["⚾ 야구 소식", "⚽ K리그2 소식", "🎌 애니/만화"])
-
-        with ntab1:
-            # MLB: 이정후/오타니/김혜성/김하성 관련 소식
-            q_mlb = quote("이정후 OR 오타니 OR 김혜성 OR 김하성 MLB 야구")
-            # KBO: 롯데자이언츠, 한화이글스 모든 소식 (부상, 콜라보, 선수 등)
-            q_kbo_lotte = quote("롯데자이언츠 KBO 야구")
-            q_kbo_hanhwa = quote("한화이글스 KBO 야구")
-            baseball_news = _merge_rss([
-                f"https://news.google.com/rss/search?q={q_mlb}&hl=ko&gl=KR&ceid=KR:ko",
-                f"https://news.google.com/rss/search?q={q_kbo_lotte}&hl=ko&gl=KR&ceid=KR:ko",
-                f"https://news.google.com/rss/search?q={q_kbo_hanhwa}&hl=ko&gl=KR&ceid=KR:ko",
-            ], max_per=6, limit=12)
-            _news_cards(baseball_news, "야구 소식을 불러올 수 없어요.")
-
-        with ntab2:
-            # 수원삼성, 수원FC 각각 독립 검색 후 합치기
-            q_ss = quote("수원삼성블루윙즈 K리그")
-            q_sfc = quote("수원FC K리그2")
-            soccer_news = _merge_rss([
-                f"https://news.google.com/rss/search?q={q_ss}&hl=ko&gl=KR&ceid=KR:ko",
-                f"https://news.google.com/rss/search?q={q_sfc}&hl=ko&gl=KR&ceid=KR:ko",
-            ], max_per=7, limit=10)
-            _news_cards(soccer_news, "축구 소식을 불러올 수 없어요.")
-
-        with ntab3:
-            # ANN(영문) + MAL(영문) + Comic Natalie(일문) 합산 — 많이 가져와서 필터링
-            raw_anime = _merge_rss([
-                "https://www.animenewsnetwork.com/all/rss.xml",
-                "https://myanimelist.net/rss/news.xml",
-                "https://natalie.mu/comic/feed/news",
-            ], max_per=15, limit=60, fast=True)
-            # 인기 시리즈 / 신작 / 순위 관련만 필터링
-            filtered = [it for it in raw_anime if _anime_relevant(it["title"])]
-            # 필터 결과가 너무 적으면 원본에서 최신 10개로 보완
-            show_items = (filtered if len(filtered) >= 5 else raw_anime)[:12]
-            # 제목 한국어 번역 (24시간 캐시)
-            translated_anime = [
-                {**it, "title": _translate_ko(it["title"])}
-                for it in show_items
-            ]
-            _news_cards(translated_anime, "애니/만화 소식을 불러올 수 없어요.")
+    
+            # ── KBO 경기 ──
+            st.markdown('<div class="sec-label" style="margin-top:14px">⚾ KBO (한화·롯데)</div>', unsafe_allow_html=True)
+            kbo_items = _get_sport_schedule_items(_KBO_SCHEDULE, _KBO_TARGET, _today_kst())
+            any_kbo_today = any(it["is_today"] for it in kbo_items)
+            kbo_live = fetch_kbo_live_today(today_str4) if any_kbo_today else []
+            if kbo_items:
+                for it in kbo_items:
+                    kg = _overlay_naver_pitchers(it["game"])
+                    lbl, is_td = it["label"], it["is_today"]
+                    lbl_color = "#dc2626" if is_td else "#9ca3af"
+                    st.markdown(
+                        '<div style="font-size:10px;color:' + lbl_color + ';font-weight:' + ("700" if is_td else "400") + ';margin:6px 0 2px 2px">'
+                        + ("🔴 " if is_td else "📅 ") + html_lib.escape(lbl) + '</div>',
+                        unsafe_allow_html=True
+                    )
+                    st.markdown(_sport_card(kg, is_td, kbo_live, "#e65c00"), unsafe_allow_html=True)
+                if any_kbo_today:
+                    lineup_hint = fetch_lineup_news("한화이글스 OR 롯데자이언츠")
+                    if lineup_hint:
+                        st.markdown(
+                            '<div style="font-size:11px;color:#6b7280;background:#f9fafb;'
+                            'border-radius:8px;padding:8px 12px;margin-top:2px">'
+                            '📋 ' + html_lib.escape(lineup_hint) + '</div>',
+                            unsafe_allow_html=True
+                        )
+            else:
+                st.markdown('<div class="sec-alert">5월 이후 일정은 추후 업데이트 예정</div>', unsafe_allow_html=True)
+    
+            # ── K리그2 경기 ──
+            st.markdown('<div class="sec-label" style="margin-top:14px">⚽ K리그2 (수원삼성·수원FC)</div>', unsafe_allow_html=True)
+            kl2_items = _get_sport_schedule_items(_KL2_SCHEDULE, _KL2_TARGET, _today_kst())
+            if kl2_items:
+                for it in kl2_items:
+                    kg, lbl, is_td = it["game"], it["label"], it["is_today"]
+                    lbl_color = "#dc2626" if is_td else "#9ca3af"
+                    st.markdown(
+                        '<div style="font-size:10px;color:' + lbl_color + ';font-weight:' + ("700" if is_td else "400") + ';margin:6px 0 2px 2px">'
+                        + ("🔴 " if is_td else "📅 ") + html_lib.escape(lbl) + '</div>',
+                        unsafe_allow_html=True
+                    )
+                    st.markdown(_sport_card(kg, is_td, [], "#1a7f4b"), unsafe_allow_html=True)
+            else:
+                st.markdown('<div class="sec-alert">5월 이후 일정은 추후 업데이트 예정</div>', unsafe_allow_html=True)
+    
+        # ── 오른쪽: 소식 ──
+        with col4r:
+            st.markdown('<div class="sec-label">📰 최신 소식</div>', unsafe_allow_html=True)
+            ntab1, ntab2, ntab3 = st.tabs(["⚾ 야구 소식", "⚽ K리그2 소식", "🎌 애니/만화"])
+    
+            with ntab1:
+                # MLB: 이정후/오타니/김혜성/김하성 관련 소식
+                q_mlb = quote("이정후 OR 오타니 OR 김혜성 OR 김하성 MLB 야구")
+                # KBO: 롯데자이언츠, 한화이글스 모든 소식 (부상, 콜라보, 선수 등)
+                q_kbo_lotte = quote("롯데자이언츠 KBO 야구")
+                q_kbo_hanhwa = quote("한화이글스 KBO 야구")
+                baseball_news = _merge_rss([
+                    f"https://news.google.com/rss/search?q={q_mlb}&hl=ko&gl=KR&ceid=KR:ko",
+                    f"https://news.google.com/rss/search?q={q_kbo_lotte}&hl=ko&gl=KR&ceid=KR:ko",
+                    f"https://news.google.com/rss/search?q={q_kbo_hanhwa}&hl=ko&gl=KR&ceid=KR:ko",
+                ], max_per=6, limit=12)
+                _news_cards(baseball_news, "야구 소식을 불러올 수 없어요.")
+    
+            with ntab2:
+                # 수원삼성, 수원FC 각각 독립 검색 후 합치기
+                q_ss = quote("수원삼성블루윙즈 K리그")
+                q_sfc = quote("수원FC K리그2")
+                soccer_news = _merge_rss([
+                    f"https://news.google.com/rss/search?q={q_ss}&hl=ko&gl=KR&ceid=KR:ko",
+                    f"https://news.google.com/rss/search?q={q_sfc}&hl=ko&gl=KR&ceid=KR:ko",
+                ], max_per=7, limit=10)
+                _news_cards(soccer_news, "축구 소식을 불러올 수 없어요.")
+    
+            with ntab3:
+                # ANN(영문) + MAL(영문) + Comic Natalie(일문) 합산 — 많이 가져와서 필터링
+                raw_anime = _merge_rss([
+                    "https://www.animenewsnetwork.com/all/rss.xml",
+                    "https://myanimelist.net/rss/news.xml",
+                    "https://natalie.mu/comic/feed/news",
+                ], max_per=15, limit=60, fast=True)
+                # 인기 시리즈 / 신작 / 순위 관련만 필터링
+                filtered = [it for it in raw_anime if _anime_relevant(it["title"])]
+                # 필터 결과가 너무 적으면 원본에서 최신 10개로 보완
+                show_items = (filtered if len(filtered) >= 5 else raw_anime)[:12]
+                # 제목 한국어 번역 (24시간 캐시)
+                translated_anime = [
+                    {**it, "title": _translate_ko(it["title"])}
+                    for it in show_items
+                ]
+                _news_cards(translated_anime, "애니/만화 소식을 불러올 수 없어요.")
 
 # ──────────────────────────────────────────────
-# TAB 5 — 샘플 스캔 분석
+# TAB 4 — 샘플 스캔 분석
 # ──────────────────────────────────────────────
-with tab5:
+with tab4:
     import hashlib as _hashlib
     from PIL import Image as _PILImage, ImageFilter as _ImageFilter
     import numpy as _np
     import io as _io
+    try:
+        import pydicom as _pydicom
+        _pydicom_ok = True
+    except ImportError:
+        _pydicom_ok = False
 
     # ── 헤더 ──
     st.markdown("""
@@ -3180,8 +3206,8 @@ with tab5:
 
     # ── 업로드 ──
     _scan_file = st.file_uploader(
-        "📁 X-RAY 이미지 업로드 (PNG · JPG · BMP · TIFF)",
-        type=["png", "jpg", "jpeg", "bmp", "tif", "tiff"],
+        "📁 X-RAY 이미지 업로드 (PNG · JPG · BMP · TIFF · DCM)",
+        type=["png", "jpg", "jpeg", "bmp", "tif", "tiff", "dcm"],
         key="scan_upload",
     )
 
@@ -3206,7 +3232,54 @@ with tab5:
         </div>
         """, unsafe_allow_html=True)
     else:
-        _img     = _PILImage.open(_scan_file)
+        # ── DCM 파일 처리 ──
+        _is_dcm = _scan_file.name.lower().endswith(".dcm")
+        _dicom_meta = {}
+        if _is_dcm:
+            if not _pydicom_ok:
+                st.error("pydicom 패키지가 설치되지 않았습니다. requirements.txt에 pydicom>=2.4.0을 추가하세요.")
+                st.stop()
+            _dcm_bytes = _scan_file.read()
+            _scan_file.seek(0)
+            try:
+                _ds = _pydicom.dcmread(_io.BytesIO(_dcm_bytes))
+                _px = _ds.pixel_array
+                _px_min, _px_max = float(_px.min()), float(_px.max())
+                if _px_max > _px_min:
+                    _px8 = ((_px - _px_min) / (_px_max - _px_min) * 255).astype(_np.uint8)
+                else:
+                    _px8 = _np.zeros(_px.shape, dtype=_np.uint8)
+                if _px8.ndim == 2:
+                    _img = _PILImage.fromarray(_px8, mode="L")
+                elif _px8.ndim == 3:
+                    _img = _PILImage.fromarray(_px8[:, :, :3])
+                else:
+                    st.error("지원하지 않는 DICOM 픽셀 배열 형식입니다.")
+                    st.stop()
+                # DICOM 메타데이터 수집
+                for _dcm_tag, _dcm_label in [
+                    ("KVP",                   "관전압 (kVp)"),
+                    ("Manufacturer",          "제조사"),
+                    ("ManufacturerModelName", "모델명"),
+                    ("SeriesDescription",     "시리즈"),
+                    ("Modality",              "모달리티"),
+                    ("Rows",                  "행 (px)"),
+                    ("Columns",               "열 (px)"),
+                    ("PixelSpacing",          "픽셀 간격"),
+                    ("SliceThickness",        "슬라이스 두께"),
+                    ("BitsAllocated",         "비트 깊이"),
+                ]:
+                    try:
+                        _dv = getattr(_ds, _dcm_tag)
+                        _dicom_meta[_dcm_label] = str(_dv)
+                    except AttributeError:
+                        pass
+            except Exception as _dcm_err:
+                st.error(f"DICOM 파일을 읽을 수 없습니다: {_dcm_err}")
+                st.stop()
+        else:
+            _img = _PILImage.open(_scan_file)
+
         _img_rgb = _img.convert("RGB")
         _img_gray = _img.convert("L")
         _arr     = _np.array(_img_gray)
@@ -3234,22 +3307,35 @@ with tab5:
             st.markdown("</div>", unsafe_allow_html=True)
 
             # 이미지 기본 정보
+            _meta_rows_html = (
+                f'<tr><td style="color:#6b7280;padding:4px 0;border-bottom:1px solid #f3f4f6">해상도</td>'
+                f'<td style="font-weight:600;text-align:right;border-bottom:1px solid #f3f4f6">{_w} × {_h} px</td></tr>'
+                f'<tr><td style="color:#6b7280;padding:4px 0;border-bottom:1px solid #f3f4f6">평균 밝기</td>'
+                f'<td style="font-weight:600;text-align:right;border-bottom:1px solid #f3f4f6">{_mean_b:.1f} / 255</td></tr>'
+                f'<tr><td style="color:#6b7280;padding:4px 0;border-bottom:1px solid #f3f4f6">명암 대비</td>'
+                f'<td style="font-weight:600;text-align:right;border-bottom:1px solid #f3f4f6">{_std_b:.1f}</td></tr>'
+                f'<tr><td style="color:#6b7280;padding:4px 0;border-bottom:1px solid #f3f4f6">종횡비</td>'
+                f'<td style="font-weight:600;text-align:right;border-bottom:1px solid #f3f4f6">{"정방형(단면)" if 0.85<=_aspect<=1.15 else ("가로형" if _aspect>1.15 else "세로형(측면)")}</td></tr>'
+                f'<tr><td style="color:#6b7280;padding:4px 0{"" if not _dicom_meta else ";border-bottom:1px solid #f3f4f6"}">엣지 밀도</td>'
+                f'<td style="font-weight:600;text-align:right">{"높음 (복잡한 구조)" if _edge_d>0.06 else ("보통" if _edge_d>0.03 else "낮음")}</td></tr>'
+            )
+            if _dicom_meta:
+                _dcm_items = list(_dicom_meta.items())
+                for _di, (_dk, _dv_str) in enumerate(_dcm_items):
+                    _is_last = _di == len(_dcm_items) - 1
+                    _bd = "" if _is_last else ";border-bottom:1px solid #f3f4f6"
+                    _meta_rows_html += (
+                        f'<tr><td style="color:#7c3aed;padding:4px 0{_bd}">{_dk}</td>'
+                        f'<td style="font-weight:600;text-align:right{_bd}">{_dv_str}</td></tr>'
+                    )
+            _info_label = "📋 DICOM INFO" if _is_dcm else "📋 IMAGE INFO"
             st.markdown(f"""
             <div style="background:white;border-radius:12px;padding:14px 16px;
             box-shadow:0 2px 8px rgba(0,0,0,0.07)">
               <div style="font-size:9px;font-weight:700;color:#7c3aed;letter-spacing:2px;
-              text-transform:uppercase;margin-bottom:10px">📋 IMAGE INFO</div>
+              text-transform:uppercase;margin-bottom:10px">{_info_label}</div>
               <table style="width:100%;font-size:11px;border-collapse:collapse">
-                <tr><td style="color:#6b7280;padding:4px 0;border-bottom:1px solid #f3f4f6">해상도</td>
-                    <td style="font-weight:600;text-align:right;border-bottom:1px solid #f3f4f6">{_w} × {_h} px</td></tr>
-                <tr><td style="color:#6b7280;padding:4px 0;border-bottom:1px solid #f3f4f6">평균 밝기</td>
-                    <td style="font-weight:600;text-align:right;border-bottom:1px solid #f3f4f6">{_mean_b:.1f} / 255</td></tr>
-                <tr><td style="color:#6b7280;padding:4px 0;border-bottom:1px solid #f3f4f6">명암 대비</td>
-                    <td style="font-weight:600;text-align:right;border-bottom:1px solid #f3f4f6">{_std_b:.1f}</td></tr>
-                <tr><td style="color:#6b7280;padding:4px 0;border-bottom:1px solid #f3f4f6">종횡비</td>
-                    <td style="font-weight:600;text-align:right;border-bottom:1px solid #f3f4f6">{"정방형(단면)" if 0.85<=_aspect<=1.15 else ("가로형" if _aspect>1.15 else "세로형(측면)")}</td></tr>
-                <tr><td style="color:#6b7280;padding:4px 0">엣지 밀도</td>
-                    <td style="font-weight:600;text-align:right">{"높음 (복잡한 구조)" if _edge_d>0.06 else ("보통" if _edge_d>0.03 else "낮음")}</td></tr>
+                {_meta_rows_html}
               </table>
             </div>
             """, unsafe_allow_html=True)
