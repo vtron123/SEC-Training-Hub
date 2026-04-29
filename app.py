@@ -3184,6 +3184,8 @@ with tab5:
 # ──────────────────────────────────────────────
 with tab4:
     import hashlib as _hashlib
+    import json as _json
+    import math as _math
     from PIL import Image as _PILImage, ImageFilter as _ImageFilter
     import numpy as _np
     import io as _io
@@ -3192,6 +3194,45 @@ with tab4:
         _pydicom_ok = True
     except ImportError:
         _pydicom_ok = False
+
+    # ── scan_db.json 로드 (캐시) ──
+    @st.cache_data(show_spinner=False)
+    def _load_scan_db():
+        _db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scan_db.json")
+        if not os.path.exists(_db_path):
+            return None
+        with open(_db_path, encoding="utf-8") as _f:
+            return _json.load(_f)
+
+    _SCAN_DB = _load_scan_db()
+
+    def _db_similarity(mean_b, std_b, edge_d, aspect, db):
+        """scan_db 통계 기반 z-score 유사도 계산 → (machine, score 0~1) 리스트"""
+        if db is None:
+            return []
+        results = []
+        query = {"mean": mean_b, "std": std_b, "edge": edge_d, "asp": aspect}
+        weights = {"mean": 1.0, "std": 1.2, "edge": 1.5, "asp": 2.0}
+        for mname, mdata in db["machines"].items():
+            stats = mdata.get("stats", {})
+            if not stats:
+                continue
+            dist = 0.0
+            for feat, w in weights.items():
+                if feat not in stats:
+                    continue
+                mu    = stats[feat]["mu"]
+                sigma = stats[feat]["sigma"] + 1e-6
+                dist += w * ((query[feat] - mu) / sigma) ** 2
+            # 거리 → 유사도 (가우시안 커널)
+            similarity = _math.exp(-dist / (2 * len(weights)))
+            results.append((mname, round(similarity, 4)))
+        results.sort(key=lambda x: x[1], reverse=True)
+        # 최대값으로 정규화
+        if results and results[0][1] > 0:
+            top = results[0][1]
+            results = [(m, round(min(s / top, 1.0) * 0.97, 4)) for m, s in results]
+        return results
 
     # ── 헤더 ──
     st.markdown("""
@@ -3357,43 +3398,45 @@ with tab4:
                 </div>
                 """, unsafe_allow_html=True)
             else:
-                # ── 유사도 스코어 계산 (휴리스틱) ──
-                _scores = []
-                _is_radial = 0.85 <= _aspect <= 1.15  # 정방형 = 단면(Radial) 가능성
-                for _mname in MACHINE_LIST[1:]:
-                    _s = 0.0
-                    # 원통형 배터리: 단면이면 점수 부여
-                    if _is_radial and ("원통형" in _mname or "4680" in _mname or "4695" in _mname or "2170" in _mname):
-                        _s += 0.25
-                    # 밝기 범위 (X-RAY 특성: 60~170)
-                    if 60 <= _mean_b <= 170:
-                        _s += 0.20
-                    # 고대비 = 내부 구조 선명
-                    if _std_b > 40:
-                        _s += 0.15
-                    # 엣지 밀도 (복잡한 내부 구조)
-                    if _edge_d > 0.04:
-                        _s += 0.10
-                    # 장비별 해시 기반 변동 (재현 가능한 랜덤)
-                    _h16 = int(_hashlib.md5((_mname + str(round(_mean_b, -1))).encode()).hexdigest()[:6], 16)
-                    _s += (_h16 / 16777215.0) * 0.30
-                    _scores.append((_mname, min(_s, 0.99)))
-
-                _scores.sort(key=lambda x: x[1], reverse=True)
-                _top3 = _scores[:3]
+                # ── 유사도 스코어 계산 (scan_db 기반 → 없으면 휴리스틱 fallback) ──
+                _db_scores = _db_similarity(_mean_b, _std_b, _edge_d, _aspect, _SCAN_DB)
+                if _db_scores:
+                    _top3 = _db_scores[:3]
+                    _method = f"DB ({_SCAN_DB['total_samples']}장 학습)"
+                else:
+                    # 휴리스틱 fallback
+                    _scores = []
+                    _is_radial = 0.85 <= _aspect <= 1.15
+                    for _mname in MACHINE_LIST[1:]:
+                        _s = 0.0
+                        if _is_radial and ("원통형" in _mname or "4680" in _mname or "4695" in _mname or "2170" in _mname):
+                            _s += 0.25
+                        if 60 <= _mean_b <= 170:
+                            _s += 0.20
+                        if _std_b > 40:
+                            _s += 0.15
+                        if _edge_d > 0.04:
+                            _s += 0.10
+                        _h16 = int(_hashlib.md5((_mname + str(round(_mean_b, -1))).encode()).hexdigest()[:6], 16)
+                        _s += (_h16 / 16777215.0) * 0.30
+                        _scores.append((_mname, min(_s, 0.99)))
+                    _scores.sort(key=lambda x: x[1], reverse=True)
+                    _top3 = _scores[:3]
+                    _method = "휴리스틱"
 
                 # 최상위 매칭 표시
                 st.markdown(f"""
                 <div style="background:#0f172a;border-radius:14px;padding:12px 14px;margin-bottom:8px">
                   <div style="color:#64748b;font-size:9px;font-weight:700;letter-spacing:2px;
-                  text-transform:uppercase;margin-bottom:8px">🎯 BEST MATCH</div>
+                  text-transform:uppercase;margin-bottom:8px">🎯 BEST MATCH · {_method}</div>
                   <div style="color:#a78bfa;font-size:15px;font-weight:800;margin-bottom:2px">
                     {_top3[0][0]}</div>
                   <div style="color:#4ade80;font-size:12px;font-weight:600;margin-bottom:10px">
                     유사도 {_top3[0][1]*100:.1f}%</div>
-                  <div style="background:#1e293b;border-radius:8px;padding:18px;
-                  text-align:center;color:#475569;font-size:10px">
-                    📁 학습 이미지 DB 연결 시<br>실제 이미지가 표시됩니다
+                  <div style="background:#1e293b;border-radius:8px;padding:10px 14px;
+                  color:#475569;font-size:10px;line-height:1.6">
+                    📊 분석 근거<br>
+                    <span style="color:#64748b">밝기 {_mean_b:.0f} · 대비 {_std_b:.0f} · 엣지 {_edge_d:.3f} · 종횡비 {_aspect:.2f}</span>
                   </div>
                 </div>
                 """, unsafe_allow_html=True)
