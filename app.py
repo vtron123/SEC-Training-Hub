@@ -3763,12 +3763,10 @@ with tab4:
                 _uimg_disp.save(_ubuf, format="JPEG", quality=85)
                 _ub64 = _b64u.b64encode(_ubuf.getvalue()).decode()
                 st.markdown(
-                    '<div style="background:#000;border-radius:8px;overflow:hidden;'
-                    'min-height:200px;display:flex;align-items:center;justify-content:center;'
-                    'padding:4px">'
+                    '<div style="border-radius:8px;overflow:hidden;height:280px;'
+                    'display:flex;align-items:center;justify-content:center">'
                     f'<img src="data:image/jpeg;base64,{_ub64}" '
-                    'style="max-width:100%;max-height:320px;object-fit:contain;'
-                    'display:block;border-radius:4px">'
+                    'style="width:100%;height:280px;object-fit:cover;display:block;border-radius:8px">'
                     '</div>',
                     unsafe_allow_html=True
                 )
@@ -3808,22 +3806,27 @@ with tab4:
                     import io as _io2, base64 as _b64mod
                     _rimg = Image.open(_ref_imgs_found[0]).convert("RGB")
                     _rw, _rh = _rimg.size
-                    # 최대 1600×1600px 로 제한 (파일 크기)
+                    # 최대 1600px 제한
                     _rmax = 1600
                     if max(_rw, _rh) > _rmax:
                         _rs = _rmax / max(_rw, _rh)
                         _rimg = _rimg.resize((int(_rw * _rs), int(_rh * _rs)), Image.LANCZOS)
+                        _rw, _rh = _rimg.size
+                    # 파노라마 이미지(asp>4)는 중앙 크롭 — 좌우 끝보다 내부 구조 중심이 의미 있음
+                    _rasp = _rw / (_rh + 1e-6)
+                    if _rasp > 4.0:
+                        _crop_w = int(_rh * 4.0)
+                        _cx = (_rw - _crop_w) // 2
+                        _rimg = _rimg.crop((_cx, 0, _cx + _crop_w, _rh))
+                        _rw, _rh = _rimg.size
                     _rbuf = _io2.BytesIO()
                     _rimg.save(_rbuf, format="JPEG", quality=85)
                     _rb64 = _b64mod.b64encode(_rbuf.getvalue()).decode()
-                    # object-fit:contain 으로 어떤 비율이든 컨테이너 내 전체 표시
                     st.markdown(
-                        '<div style="background:#000;border-radius:8px;overflow:hidden;'
-                        'min-height:200px;display:flex;align-items:center;justify-content:center;'
-                        'padding:4px">'
+                        '<div style="border-radius:8px;overflow:hidden;height:280px;'
+                        'display:flex;align-items:center;justify-content:center">'
                         f'<img src="data:image/jpeg;base64,{_rb64}" '
-                        'style="max-width:100%;max-height:320px;object-fit:contain;'
-                        'display:block;border-radius:4px">'
+                        'style="width:100%;height:280px;object-fit:cover;display:block;border-radius:8px">'
                         '</div>',
                         unsafe_allow_html=True
                     )
