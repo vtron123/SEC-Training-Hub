@@ -3544,7 +3544,9 @@ with tab4:
                 st.markdown("</div>", unsafe_allow_html=True)
 
                 # ── 참조 이미지 미리보기 (로컬 DB에서) ──
-                _ref_samples = _best_mdata.get("samples", [])
+                _ref_mname  = _top3_full[0][0] if _top3_full else ""
+                _ref_mdata  = _SCAN_DB["machines"].get(_ref_mname, {}) if _SCAN_DB else {}
+                _ref_samples = _ref_mdata.get("samples", [])
                 if _ref_samples:
                     import random as _random
                     _SAIGE_ROOT = r"C:\SaigeVision"
@@ -3562,7 +3564,7 @@ with tab4:
                             padding:10px 12px">
                               <div style="color:#64748b;font-size:8px;font-weight:700;
                               letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">
-                                📷 참조 이미지 — {_best_mname}
+                                📷 참조 이미지 — {_ref_mname}
                               </div>
                               <div style="color:#334155;font-size:7px;margin-bottom:6px">
                                 {_pick.get('view','?')} · {_pick.get('date','?')} · {_pick['src'].split('\\\\')[-1]}
