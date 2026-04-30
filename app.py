@@ -3543,18 +3543,24 @@ with tab4:
                     """, unsafe_allow_html=True)
                 st.markdown("</div>", unsafe_allow_html=True)
 
-                # ── 참조 이미지 미리보기 (ref_imgs/ 폴더에서) ──
+                # ── 참조 이미지 미리보기 (ref_imgs/ + manifest.json) ──
                 _ref_mname = _top3_full[0][0] if _top3_full else ""
                 if _ref_mname:
-                    import re as _re
-                    _ref_folder = _re.sub(r'[\\/:*?"<>| ()]', '_', _ref_mname).strip('_')
-                    _base_dir   = os.path.dirname(os.path.abspath(__file__))
-                    # 0.jpg / 1.jpg 중 존재하는 것 표시
+                    _base_dir      = os.path.dirname(os.path.abspath(__file__))
+                    _manifest_path = os.path.join(_base_dir, "ref_imgs", "manifest.json")
                     _ref_imgs_found = []
-                    for _ri in range(2):
-                        _rp = os.path.join(_base_dir, "ref_imgs", _ref_folder, f"{_ri}.jpg")
-                        if os.path.exists(_rp):
-                            _ref_imgs_found.append(_rp)
+                    if os.path.exists(_manifest_path):
+                        try:
+                            with open(_manifest_path, encoding="utf-8") as _mf:
+                                _manifest = json.load(_mf)
+                            _folder_id = _manifest.get(_ref_mname)
+                            if _folder_id:
+                                for _ri in range(2):
+                                    _rp = os.path.join(_base_dir, "ref_imgs", _folder_id, f"{_ri}.jpg")
+                                    if os.path.exists(_rp):
+                                        _ref_imgs_found.append(_rp)
+                        except Exception:
+                            pass
                     if _ref_imgs_found:
                         st.markdown(f"""
                         <div style="margin-top:10px;background:#0f172a;border-radius:12px;
