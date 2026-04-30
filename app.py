@@ -3543,6 +3543,36 @@ with tab4:
                     """, unsafe_allow_html=True)
                 st.markdown("</div>", unsafe_allow_html=True)
 
+                # ── 참조 이미지 미리보기 (로컬 DB에서) ──
+                _ref_samples = _best_mdata.get("samples", [])
+                if _ref_samples:
+                    import random as _random
+                    _SAIGE_ROOT = r"C:\SaigeVision"
+                    # 뷰 타입이 업로드 이미지와 비슷한 샘플 우선 선택
+                    _upload_view = "cross_section" if 0.85 <= _aspect <= 1.15 else "side"
+                    _view_matched = [s for s in _ref_samples if s.get("view") == _upload_view]
+                    _pick_pool = _view_matched if _view_matched else _ref_samples
+                    _pick = _random.choice(_pick_pool[:10])  # 최근 10장 중 랜덤
+                    _ref_img_path = os.path.join(_SAIGE_ROOT, _pick["src"])
+                    if os.path.exists(_ref_img_path):
+                        try:
+                            _ref_pil = Image.open(_ref_img_path).convert("RGB")
+                            st.markdown(f"""
+                            <div style="margin-top:10px;background:#0f172a;border-radius:12px;
+                            padding:10px 12px">
+                              <div style="color:#64748b;font-size:8px;font-weight:700;
+                              letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">
+                                📷 참조 이미지 — {_best_mname}
+                              </div>
+                              <div style="color:#334155;font-size:7px;margin-bottom:6px">
+                                {_pick.get('view','?')} · {_pick.get('date','?')} · {_pick['src'].split('\\\\')[-1]}
+                              </div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            st.image(_ref_pil, use_container_width=True)
+                        except Exception:
+                            pass
+
         # ── 하단: 자동 분석 결과 (GLIMPSE 스타일) ──
         if st.session_state.get("scan_done"):
             st.markdown('<div style="margin-top:14px"></div>', unsafe_allow_html=True)
