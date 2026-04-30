@@ -3592,30 +3592,27 @@ with tab4:
                 _top3_html = ""
                 for _ri, (_mn, _ms) in enumerate(_top3):
                     _pct = _ms * 100
-                    _ct_icon = {"cylindrical":"🔋","pouch":"📦","prismatic":"🔲","jig":"🔧"}.get(
-                        _top3_full[_ri][2], "")
+                    _ct_icon = {"cylindrical":"🔋","pouch":"📦","prismatic":"🔲","jig":"🔧"}.get(_top3_full[_ri][2], "")
                     _mn_short = _mn if len(_mn) <= 22 else _mn[:21] + "…"
-                    _top3_html += f"""
-                    <div style="margin-bottom:14px">
-                      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;gap:6px">
-                        <span style="color:#cbd5e1;font-size:10px;font-weight:600;
-                        white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1">
-                          {_medals[_ri]} {_ct_icon} {_mn_short}</span>
-                        <span style="color:{_bar_colors[_ri]};font-size:13px;font-weight:900;
-                        flex-shrink:0">{_pct:.1f}%</span>
-                      </div>
-                      <div style="background:#0f172a;border-radius:6px;height:10px;overflow:hidden">
-                        <div style="background:linear-gradient(90deg,{_bar_colors[_ri]},{_bar_colors[_ri]}66);
-                        width:{int(_pct)}%;height:10px;border-radius:6px;
-                        box-shadow:0 0 10px {_bar_colors[_ri]}77"></div>
-                      </div>
-                    </div>"""
-                st.markdown(f"""
-                <div style="background:#0f172a;border-radius:16px;padding:16px 18px">
-                  <div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;
-                  text-transform:uppercase;margin-bottom:14px">📊 유사 모델 순위 TOP-3</div>
-                  {_top3_html}
-                </div>""", unsafe_allow_html=True)
+                    _bc = _bar_colors[_ri]
+                    _top3_html += (
+                        f'<div style="margin-bottom:14px">'
+                        f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;gap:6px">'
+                        f'<span style="color:#cbd5e1;font-size:10px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1">'
+                        f'{_medals[_ri]} {_ct_icon} {_mn_short}</span>'
+                        f'<span style="color:{_bc};font-size:13px;font-weight:900;flex-shrink:0">{_pct:.1f}%</span>'
+                        f'</div>'
+                        f'<div style="background:#0f172a;border-radius:6px;height:10px;overflow:hidden">'
+                        f'<div style="background:linear-gradient(90deg,{_bc},{_bc}66);width:{int(_pct)}%;height:10px;border-radius:6px;box-shadow:0 0 10px {_bc}77"></div>'
+                        f'</div></div>'
+                    )
+                st.markdown(
+                    '<div style="background:#0f172a;border-radius:16px;padding:16px 18px">'
+                    '<div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:14px">📊 유사 모델 순위 TOP-3</div>'
+                    + _top3_html +
+                    '</div>',
+                    unsafe_allow_html=True
+                )
 
         # ── Row 3: 인포그래픽 메트릭 카드 ──
         if st.session_state.get("scan_done"):
@@ -3749,24 +3746,19 @@ with tab4:
                             _vp   = _vn / _vc_total * 100
                             _vc_c = _vc_color_map.get(_vt, "#64748b")
                             _vl   = _vc_label_map.get(_vt, _vt)
-                            _vc_bars += f"""
-                            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-                              <div style="color:{_vc_c};font-size:9px;font-weight:700;width:52px;
-                              flex-shrink:0;text-align:right">{_vl}</div>
-                              <div style="flex:1;background:#0f172a;border-radius:4px;height:8px;overflow:hidden">
-                                <div style="background:{_vc_c};width:{int(_vp)}%;height:8px;border-radius:4px;
-                                box-shadow:0 0 6px {_vc_c}55"></div>
-                              </div>
-                              <div style="color:{_vc_c};font-size:9px;font-weight:700;width:34px;
-                              text-align:right">{_vp:.0f}%</div>
-                            </div>"""
-                        st.markdown(f"""
-                        <div style="background:#1e293b;border-radius:14px;padding:14px 16px">
-                          <div style="color:#64748b;font-size:8px;text-transform:uppercase;
-                          letter-spacing:1px;margin-bottom:12px">
-                            📁 {_best_mname} · 학습 뷰 분포 <span style="color:#475569">({_vc_total}장)</span></div>
-                          {_vc_bars}
-                        </div>""", unsafe_allow_html=True)
+                            _vc_bars += (
+                                f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">'
+                                f'<div style="color:{_vc_c};font-size:9px;font-weight:700;width:52px;flex-shrink:0;text-align:right">{_vl}</div>'
+                                f'<div style="flex:1;background:#0f172a;border-radius:4px;height:8px;overflow:hidden">'
+                                f'<div style="background:{_vc_c};width:{int(_vp)}%;height:8px;border-radius:4px;box-shadow:0 0 6px {_vc_c}55"></div>'
+                                f'</div>'
+                                f'<div style="color:{_vc_c};font-size:9px;font-weight:700;width:34px;text-align:right">{_vp:.0f}%</div>'
+                                f'</div>'
+                            )
+                        _vc_hdr = (f'<div style="background:#1e293b;border-radius:14px;padding:14px 16px">'
+                                   f'<div style="color:#64748b;font-size:8px;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">'
+                                   f'📁 {_best_mname} · 학습 뷰 분포 <span style="color:#475569">({_vc_total}장)</span></div>')
+                        st.markdown(_vc_hdr + _vc_bars + '</div>', unsafe_allow_html=True)
 
                 # ── 알고리즘 근거 설명 ──
                 st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
@@ -3816,62 +3808,69 @@ with tab4:
                 _t1_contrib = _top3_full[0][4] if len(_top3_full[0]) > 4 else None
                 _t2_contrib = _top3_full[0][5] if len(_top3_full[0]) > 5 else None
 
-                st.markdown(f"""
-                <div style="background:#0f172a;border-radius:16px;padding:16px 20px">
-                  <div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;
-                  text-transform:uppercase;margin-bottom:12px">🧠 매칭 근거 · WHY THIS MACHINE?</div>
-
-                  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px">
-
-                    <div style="background:#1e293b;border-radius:12px;padding:12px">
-                      <div style="color:#64748b;font-size:8px;text-transform:uppercase;
-                      letter-spacing:1px;margin-bottom:8px">🔬 매칭 알고리즘</div>
-                      <div style="color:#a78bfa;font-size:11px;font-weight:700;margin-bottom:4px">2-Tier Matching</div>
-                      <div style="color:#64748b;font-size:9px;line-height:1.6">
-                        <b style="color:#94a3b8">Tier-1</b> · Hu Moments 유클리드 거리<br>
-                        →&nbsp;형상 벡터 Top-10 후보 추출<br>
-                        <b style="color:#94a3b8">Tier-2</b> · 60% 형상 + 40% 통계<br>
-                        →&nbsp;최종 유사도 {_score_pct:.1f}% 산출<br>
-                        DB: <b style="color:#e2e8f0">{_SCAN_DB.get('total_samples',0)}장</b> ·
-                        장비 <b style="color:#e2e8f0">{len(_SCAN_DB.get('machines',{}))}종</b>
-                      </div>
-                    </div>
-
-                    <div style="background:#1e293b;border-radius:12px;padding:12px">
-                      <div style="color:#64748b;font-size:8px;text-transform:uppercase;
-                      letter-spacing:1px;margin-bottom:8px">✅ 강한 일치 근거</div>
-                      {_strong_html}
-                      {"<div style='color:#94a3b8;font-size:9px;margin-top:4px'>" + _weak_html + "</div>" if _weak_html else ""}
-                    </div>
-
-                    <div style="background:#1e293b;border-radius:12px;padding:12px">
-                      <div style="color:#64748b;font-size:8px;text-transform:uppercase;
-                      letter-spacing:1px;margin-bottom:8px">📐 뷰 타입 분석</div>
-                      <div style="color:#94a3b8;font-size:9px;line-height:1.8">
-                        <span style="color:#64748b">업로드 판정</span><br>
-                        <span style="color:#60a5fa;font-weight:700;font-size:11px">{_upload_view_lbl}</span>
-                        <span style="color:#475569;font-size:9px"> (종횡비 {_aspect:.2f})</span><br>
-                        <span style="color:#64748b">DB 주요 뷰</span><br>
-                        <span style="color:#a78bfa;font-weight:700;font-size:11px">{_ref_view_lbl}</span>
-                        <span style="color:#475569;font-size:9px"> ({_vc_dict.get(_ref_view_top,0)}장)</span><br>
-                        <span style="color:#64748b">참조이미지</span>
-                        <span style="color:#4ade80;font-size:9px"> {_upload_view_lbl} 우선 선택</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div style="background:#1e293b;border-radius:10px;padding:10px 14px;
-                  border-left:3px solid #a78bfa">
-                    <div style="color:#a78bfa;font-size:8px;font-weight:700;
-                    text-transform:uppercase;margin-bottom:6px">📋 결론 요약</div>
-                    <div style="color:#94a3b8;font-size:10px;line-height:1.7">
-                      업로드 이미지는 <span style="color:#60a5fa;font-weight:600">{_upload_view_lbl}</span>
-                      뷰로 판정됩니다 (종횡비 {_aspect:.2f}).
-                      Hu Moments 형상 벡터 분석과 통계 피처 비교 결과,
-                      <span style="color:#a78bfa;font-weight:700">{_top3[0][0]}</span>와
-                      <span style="color:#4ade80;font-weight:700">{_score_pct:.1f}%</span> 유사도로
-                      1위 매칭되었습니다.
-                      {f"강하게 일치하는 피처: {', '.join([s.split('>')[1].split('<')[0] for s in _strong_matches[:2]])}" if len(_strong_matches) >= 1 else ""}
-                    </div>
-                  </div>
-                </div>""", unsafe_allow_html=True)
+                # 알고리즘 카드 1: 매칭 알고리즘
+                _algo_card = (
+                    '<div style="background:#1e293b;border-radius:12px;padding:12px">'
+                    '<div style="color:#64748b;font-size:8px;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">🔬 매칭 알고리즘</div>'
+                    '<div style="color:#a78bfa;font-size:11px;font-weight:700;margin-bottom:6px">2-Tier Matching</div>'
+                    '<div style="color:#64748b;font-size:9px;line-height:1.7">'
+                    f'<b style="color:#94a3b8">Tier-1</b> · Hu Moments 유클리드 거리<br>'
+                    '→ 형상 벡터 Top-10 후보 추출<br>'
+                    f'<b style="color:#94a3b8">Tier-2</b> · 60% 형상 + 40% 통계<br>'
+                    f'→ 최종 유사도 <b style="color:#4ade80">{_score_pct:.1f}%</b> 산출<br>'
+                    f'DB: <b style="color:#e2e8f0">{_SCAN_DB.get("total_samples",0)}장</b> · '
+                    f'장비 <b style="color:#e2e8f0">{len(_SCAN_DB.get("machines",{}))}종</b>'
+                    '</div></div>'
+                )
+                # 알고리즘 카드 2: 강한 일치 근거
+                _weak_blk = (f'<div style="color:#94a3b8;font-size:9px;margin-top:4px">{_weak_html}</div>' if _weak_html else "")
+                _match_card = (
+                    '<div style="background:#1e293b;border-radius:12px;padding:12px">'
+                    '<div style="color:#64748b;font-size:8px;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">✅ 강한 일치 근거</div>'
+                    + _strong_html + _weak_blk +
+                    '</div>'
+                )
+                # 알고리즘 카드 3: 뷰 타입 분석
+                _view_card = (
+                    '<div style="background:#1e293b;border-radius:12px;padding:12px">'
+                    '<div style="color:#64748b;font-size:8px;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">📐 뷰 타입 분석</div>'
+                    '<div style="color:#94a3b8;font-size:9px;line-height:1.9">'
+                    '<span style="color:#64748b">업로드 판정</span><br>'
+                    f'<span style="color:#60a5fa;font-weight:700;font-size:11px">{_upload_view_lbl}</span>'
+                    f'<span style="color:#475569;font-size:9px"> (종횡비 {_aspect:.2f})</span><br>'
+                    '<span style="color:#64748b">DB 주요 뷰</span><br>'
+                    f'<span style="color:#a78bfa;font-weight:700;font-size:11px">{_ref_view_lbl}</span>'
+                    f'<span style="color:#475569;font-size:9px"> ({_vc_dict.get(_ref_view_top,0)}장)</span><br>'
+                    '<span style="color:#64748b">참조이미지</span> '
+                    f'<span style="color:#4ade80;font-size:9px">{_upload_view_lbl} 우선 선택</span>'
+                    '</div></div>'
+                )
+                # 결론 요약
+                _strong_feat_names = []
+                for _sm in _strong_matches[:2]:
+                    try: _strong_feat_names.append(_sm.split(">")[1].split("<")[0])
+                    except: pass
+                _conclusion_extra = f'강하게 일치하는 피처: {", ".join(_strong_feat_names)}' if _strong_feat_names else ""
+                _conclusion_card = (
+                    '<div style="background:#1e293b;border-radius:10px;padding:10px 14px;border-left:3px solid #a78bfa">'
+                    '<div style="color:#a78bfa;font-size:8px;font-weight:700;text-transform:uppercase;margin-bottom:6px">📋 결론 요약</div>'
+                    '<div style="color:#94a3b8;font-size:10px;line-height:1.7">'
+                    f'업로드 이미지는 <span style="color:#60a5fa;font-weight:600">{_upload_view_lbl}</span> 뷰로 판정됩니다 (종횡비 {_aspect:.2f}). '
+                    'Hu Moments 형상 벡터 분석과 통계 피처 비교 결과, '
+                    f'<span style="color:#a78bfa;font-weight:700">{_top3[0][0]}</span>와 '
+                    f'<span style="color:#4ade80;font-weight:700">{_score_pct:.1f}%</span> 유사도로 1위 매칭되었습니다. '
+                    f'{_conclusion_extra}'
+                    '</div></div>'
+                )
+                _grid = (
+                    '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px">'
+                    + _algo_card + _match_card + _view_card +
+                    '</div>'
+                )
+                st.markdown(
+                    '<div style="background:#0f172a;border-radius:16px;padding:16px 20px">'
+                    '<div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:12px">🧠 매칭 근거 · WHY THIS MACHINE?</div>'
+                    + _grid + _conclusion_card +
+                    '</div>',
+                    unsafe_allow_html=True
+                )
