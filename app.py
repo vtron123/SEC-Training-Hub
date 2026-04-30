@@ -495,6 +495,108 @@ div[data-testid="stMarkdownContainer"] { width: 100% !important; }
     border-radius: 12px !important;
     font-family: 'Pretendard', sans-serif !important;
 }
+
+/* ── 전체 위젯 강제 화이트 + 검정 텍스트 (모든 PC 환경 동일하게) ── */
+/* selectbox */
+[data-testid="stSelectbox"] > div > div,
+[data-baseweb="select"] > div {
+    background: #ffffff !important;
+    border: 1.5px solid #e2e8f0 !important;
+    border-radius: 10px !important;
+    color: #1e293b !important;
+}
+[data-baseweb="select"] span,
+[data-baseweb="select"] div {
+    color: #1e293b !important;
+}
+[data-baseweb="popover"] ul li,
+[data-baseweb="popover"] [role="option"] {
+    background: #ffffff !important;
+    color: #1e293b !important;
+}
+[data-baseweb="popover"] [role="option"]:hover,
+[data-baseweb="popover"] [aria-selected="true"] {
+    background: #f3e8ff !important;
+    color: #7c3aed !important;
+}
+/* number input */
+[data-testid="stNumberInput"] input,
+[data-testid="stNumberInput"] > div {
+    background: #ffffff !important;
+    color: #1e293b !important;
+    border: 1.5px solid #e2e8f0 !important;
+    border-radius: 10px !important;
+}
+[data-testid="stNumberInput"] button {
+    background: #f8fafc !important;
+    color: #374151 !important;
+    border-color: #e2e8f0 !important;
+}
+/* text input & textarea */
+[data-testid="stTextInput"] input,
+[data-testid="stTextArea"] textarea,
+.stTextInput input,
+.stTextArea textarea {
+    background: #ffffff !important;
+    color: #1e293b !important;
+    border: 1.5px solid #e2e8f0 !important;
+    border-radius: 10px !important;
+}
+/* date input */
+[data-testid="stDateInput"] input {
+    background: #ffffff !important;
+    color: #1e293b !important;
+    border: 1.5px solid #e2e8f0 !important;
+    border-radius: 10px !important;
+}
+/* labels */
+[data-testid="stSelectbox"] label,
+[data-testid="stNumberInput"] label,
+[data-testid="stTextInput"] label,
+[data-testid="stTextArea"] label,
+[data-testid="stDateInput"] label,
+.stMarkdown p,
+.stMarkdown li,
+.stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {
+    color: #1e293b !important;
+}
+/* expander header text */
+.streamlit-expanderHeader p,
+.streamlit-expanderHeader span {
+    color: #1e293b !important;
+}
+/* file uploader */
+[data-testid="stFileUploader"] section {
+    background: #ffffff !important;
+    border: 2px dashed #cbd5e1 !important;
+    border-radius: 12px !important;
+}
+[data-testid="stFileUploader"] section *,
+[data-testid="stFileUploader"] > label,
+[data-testid="stFileUploader"] > label * {
+    color: #374151 !important;
+}
+[data-testid="stFileUploader"] section svg { fill: #374151 !important; }
+[data-testid="stFileUploader"] section button {
+    background: #f1f5f9 !important;
+    color: #374151 !important;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 8px !important;
+}
+[data-testid="stFileUploader"] [data-testid="stFileUploaderFile"] {
+    background: #f8fafc !important;
+    border-radius: 8px !important;
+}
+[data-testid="stFileUploader"] [data-testid="stFileUploaderFile"] * {
+    color: #374151 !important;
+}
+/* button (primary 제외) */
+button[kind="secondary"] {
+    background: #ffffff !important;
+    color: #374151 !important;
+    border: 1.5px solid #e2e8f0 !important;
+    border-radius: 10px !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -3562,21 +3664,13 @@ with tab4:
                 unsafe_allow_html=True)
             elif _ref_imgs_found:
                 try:
-                    # 업로드 이미지와 같은 종횡비로 크롭/리사이즈
+                    # 자연 비율 그대로 표시 (crop 없이) — 컬럼 너비에 맞게 축소만
                     _rimg = Image.open(_ref_imgs_found[0]).convert("RGB")
-                    _tw, _th = _img_rgb.size
-                    # 참조이미지를 업로드 이미지와 동일 비율로 center-crop
                     _rw, _rh = _rimg.size
-                    _tratio = _tw / _th
-                    _rratio = _rw / _rh
-                    if _rratio > _tratio:
-                        _nc_w = int(_rh * _tratio)
-                        _x0 = (_rw - _nc_w) // 2
-                        _rimg = _rimg.crop((_x0, 0, _x0 + _nc_w, _rh))
-                    elif _rratio < _tratio:
-                        _nc_h = int(_rw / _tratio)
-                        _y0 = (_rh - _nc_h) // 2
-                        _rimg = _rimg.crop((0, _y0, _rw, _y0 + _nc_h))
+                    # 최대 너비 900px로 리사이즈 (고해상도 원본이어도 브라우저 표시 속도 보장)
+                    _max_w = 900
+                    if _rw > _max_w:
+                        _rimg = _rimg.resize((_max_w, int(_rh * _max_w / _rw)), Image.LANCZOS)
                     st.image(_rimg, use_column_width=True)
                 except Exception as _e:
                     st.markdown(f'<div style="color:#f87171;padding:8px;font-size:10px">오류: {_e}</div>',
