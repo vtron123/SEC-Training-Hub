@@ -3657,33 +3657,50 @@ with tab4:
                     </div>
                     """, unsafe_allow_html=True)
                     # 7개 Hu moment 비교 막대
+                    # 전체 값 중 최댓값으로 정규화 → 항상 하나 이상의 막대가 크게 보임
+                    _n_hu = min(7, len(_hu_query), len(_hu_ref))
+                    _hu_all_abs = [abs(_hu_query[i]) for i in range(_n_hu)] + \
+                                  [abs(_hu_ref[i])   for i in range(_n_hu)]
+                    _hu_scale = max(_hu_all_abs) if _hu_all_abs else 1.0
+                    # diff 기준: 전체 diff의 최댓값으로 색상 임계값 동적 설정
+                    _diffs_all = [abs(_hu_query[i] - _hu_ref[i]) for i in range(_n_hu)]
+                    _diff_max  = max(_diffs_all) if _diffs_all else 1.0
                     _hu_pairs_html = ""
-                    for _hi in range(min(7, len(_hu_query), len(_hu_ref))):
-                        _hq_v = _hu_query[_hi]
-                        _hr_v = _hu_ref[_hi]
-                        _hq_pct = min(abs(_hq_v) / 15 * 100, 100)
-                        _hr_pct = min(abs(_hr_v) / 15 * 100, 100)
-                        _diff   = abs(_hq_v - _hr_v)
-                        _hc     = "#4ade80" if _diff < 1.0 else ("#f59e0b" if _diff < 3.0 else "#f87171")
+                    for _hi in range(_n_hu):
+                        _hq_v   = _hu_query[_hi]
+                        _hr_v   = _hu_ref[_hi]
+                        _hq_pct = min(int(abs(_hq_v) / _hu_scale * 100), 100)
+                        _hr_pct = min(int(abs(_hr_v) / _hu_scale * 100), 100)
+                        _diff   = _diffs_all[_hi]
+                        # 색상: diff가 전체 최대의 30% 미만이면 녹색, 60% 미만이면 노랑, 이상이면 빨강
+                        _ratio  = _diff / (_diff_max + 1e-9)
+                        _hc     = "#4ade80" if _ratio < 0.30 else ("#f59e0b" if _ratio < 0.60 else "#f87171")
                         _hu_pairs_html += f"""
-                        <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
-                          <div style="color:#64748b;font-size:8px;width:20px">M{_hi+1}</div>
-                          <div style="flex:1;background:#0f172a;border-radius:3px;height:5px;overflow:hidden">
-                            <div style="background:#60a5fa;width:{int(_hq_pct)}%;height:5px;border-radius:3px"></div>
+                        <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px">
+                          <div style="color:#64748b;font-size:8px;width:20px;flex-shrink:0">M{_hi+1}</div>
+                          <div style="flex:1;background:#0f172a;border-radius:3px;height:7px;overflow:hidden">
+                            <div style="background:#60a5fa;width:{_hq_pct}%;height:7px;border-radius:3px;
+                            transition:width 0.4s"></div>
                           </div>
-                          <div style="flex:1;background:#0f172a;border-radius:3px;height:5px;overflow:hidden">
-                            <div style="background:#94a3b8;width:{int(_hr_pct)}%;height:5px;border-radius:3px"></div>
+                          <div style="flex:1;background:#0f172a;border-radius:3px;height:7px;overflow:hidden">
+                            <div style="background:#94a3b8;width:{_hr_pct}%;height:7px;border-radius:3px;
+                            transition:width 0.4s"></div>
                           </div>
-                          <div style="color:{_hc};font-size:8px;width:24px">±{_diff:.1f}</div>
+                          <div style="color:{_hc};font-size:8px;width:30px;flex-shrink:0;text-align:right">
+                            {_diff:.2f}</div>
                         </div>"""
                     _hu_cols[1].markdown(f"""
                     <div style="background:#1e293b;border-radius:10px;padding:10px 14px">
-                      <div style="color:#64748b;font-size:8px;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">
+                      <div style="color:#64748b;font-size:8px;text-transform:uppercase;
+                      letter-spacing:1px;margin-bottom:8px">
                         Hu Moment 벡터 비교 &nbsp;
                         <span style="color:#60a5fa">■</span> 업로드 &nbsp;
-                        <span style="color:#94a3b8">■</span> {_best_mname[:20]}
+                        <span style="color:#94a3b8">■</span> {_best_mname[:18]}
                       </div>
                       {_hu_pairs_html}
+                      <div style="color:#334155;font-size:8px;margin-top:6px;text-align:right">
+                        스케일 기준: max={_hu_scale:.2f}
+                      </div>
                     </div>
                     """, unsafe_allow_html=True)
                 else:
