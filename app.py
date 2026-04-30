@@ -3511,7 +3511,7 @@ with tab4:
             elif _ref_imgs_found:
                 # 첫 번째 이미지를 전체 너비로 (업로드 이미지와 평행)
                 try:
-                    st.image(Image.open(_ref_imgs_found[0]), use_container_width=True)
+                    st.image(Image.open(_ref_imgs_found[0]), use_column_width=True)
                 except Exception as _e:
                     st.markdown(f'<div style="color:#f87171;font-size:10px;padding:8px">오류: {_e}</div>',
                                 unsafe_allow_html=True)
