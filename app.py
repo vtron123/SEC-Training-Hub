@@ -3341,11 +3341,110 @@ with tab4:
             return None
         return _math.sqrt(sum((a - b) ** 2 for a, b in zip(hu_a[:5], hu_b[:5])))
 
-    def _db_similarity_2tier(mean_b, std_b, edge_d, aspect, peaks_val, hu_q, db):
+    def _extract_elec_features_query(arr_u8):
+        """업로드 이미지에서 전극 형상 피처 추출 (build_scan_db_v3 동일 로직)"""
+        try:
+            H, W = arr_u8.shape
+            farr = arr_u8.astype(_np.float64)
+            v_prof = _np.mean(farr, axis=1)
+            h_prof = _np.mean(farr, axis=0)
+            def _fft_feat(profile):
+                n   = len(profile)
+                fft = _np.abs(_np.fft.rfft(profile - profile.mean()))
+                fft = fft[1:]
+                fft_n = fft / (fft.sum() + 1e-12)
+                dom_k = int(_np.argmax(fft_n)) + 1
+                return round(dom_k / n * 1000, 4), round(float(_np.sort(fft_n)[::-1][:5].sum()), 5)
+            v_freq, v_conc = _fft_feat(v_prof)
+            h_freq, h_conc = _fft_feat(h_prof)
+            bins = [0, 32, 64, 96, 128, 160, 192, 224, 256]
+            hist, _ = _np.histogram(arr_u8.ravel(), bins=bins)
+            hist_n = hist.astype(float) / (hist.sum() + 1e-12)
+            e_dark   = float((arr_u8 <  64).mean())
+            e_mid    = float(((arr_u8 >= 64) & (arr_u8 <= 192)).mean())
+            e_bright = float((arr_u8 > 192).mean())
+            v_grad  = _np.abs(_np.diff(v_prof))
+            thresh  = v_grad.mean() + v_grad.std()
+            bounds  = _np.where(v_grad > thresh)[0]
+            n_layers = len(bounds)
+            if n_layers > 2:
+                spacings = _np.diff(bounds).astype(float)
+                lp_norm = float(_np.mean(spacings)) / H
+                l_cv    = float(_np.std(spacings) / (_np.mean(spacings) + 1e-9))
+            else:
+                lp_norm, l_cv = 0.5, 1.0
+            gH, gW = max(H // 4, 1), max(W // 4, 1)
+            zm = [farr[gi*gH:min((gi+1)*gH,H), gj*gW:min((gj+1)*gW,W)].mean()
+                  for gi in range(4) for gj in range(4)]
+            zm_arr = _np.array(zm)
+            zone_var = float(zm_arr.var() / (zm_arr.mean() ** 2 + 1e-9))
+            return {"v_freq": v_freq, "h_freq": h_freq, "v_conc": v_conc, "h_conc": h_conc,
+                    "hist8": hist_n.tolist(), "e_bright": e_bright, "e_mid": e_mid,
+                    "e_dark": e_dark, "n_layers": n_layers, "lp_norm": lp_norm,
+                    "l_cv": l_cv, "zone_var": zone_var}
+        except Exception:
+            return None
+
+    def _elec_similarity(q_elec, db_elec_mean):
+        """전극 피처 유사도 계산 (0~1, 높을수록 유사)"""
+        if not q_elec or not db_elec_mean:
+            return 0.5
+        scores = []
+        # 히스토그램 교차 (재료 구성 지문) — 가중치 높음
+        q_h8 = q_elec.get("hist8", [])
+        db_h8 = db_elec_mean.get("hist8_mean", [])
+        if q_h8 and db_h8 and len(q_h8) == len(db_h8):
+            hist_sim = float(sum(min(a, b) for a, b in zip(q_h8, db_h8)))
+            scores.append((hist_sim, 3.5))
+        # 재료 비율 (e_bright, e_mid, e_dark)
+        for key, w in [("e_bright", 2.0), ("e_mid", 2.5), ("e_dark", 2.0)]:
+            qv = q_elec.get(key, 0)
+            dm = db_elec_mean.get(key, {})
+            if isinstance(dm, dict):
+                mu  = dm.get("mu", 0)
+                sig = dm.get("sigma", 1) + 1e-6
+                z   = abs(qv - mu) / sig
+                sim = _math.exp(-0.5 * z * z)
+                scores.append((sim, w))
+        # 층 주기/균일도
+        for key, w in [("lp_norm", 2.0), ("l_cv", 1.5), ("n_layers", 1.5)]:
+            qv = q_elec.get(key, 0)
+            dm = db_elec_mean.get(key, {})
+            if isinstance(dm, dict):
+                mu  = dm.get("mu", 0)
+                sig = dm.get("sigma", 1) + 1e-6
+                z   = abs(qv - mu) / sig
+                sim = _math.exp(-0.5 * z * z)
+                scores.append((sim, w))
+        # FFT 에너지 집중도
+        for key, w in [("v_conc", 1.0), ("h_conc", 1.0), ("v_freq", 1.5), ("h_freq", 1.5)]:
+            qv = q_elec.get(key, 0)
+            dm = db_elec_mean.get(key, {})
+            if isinstance(dm, dict):
+                mu  = dm.get("mu", 0)
+                sig = dm.get("sigma", 1) + 1e-6
+                z   = abs(qv - mu) / sig
+                sim = _math.exp(-0.5 * z * z)
+                scores.append((sim, w))
+        # 공간 분산
+        qv = q_elec.get("zone_var", 0)
+        dm = db_elec_mean.get("zone_var", {})
+        if isinstance(dm, dict):
+            mu  = dm.get("mu", 0)
+            sig = dm.get("sigma", 1) + 1e-6
+            z   = abs(qv - mu) / sig
+            scores.append((_math.exp(-0.5 * z * z), 1.0))
+        if not scores:
+            return 0.5
+        total_w = sum(w for _, w in scores)
+        return sum(s * w for s, w in scores) / (total_w + 1e-9)
+
+    def _db_similarity_2tier(mean_b, std_b, edge_d, aspect, peaks_val, hu_q, db, elec_q=None):
         """
-        2-Tier 유사도 매칭
-        Tier-1: Hu Moments shape distance → Top-10 후보 추출
-        Tier-2: Multi-feature z-score (mean/std/edge/asp/peaks) 정밀 랭킹
+        3-Score 유사도 매칭
+        Score-A (20%): Hu Moments 외형 거리
+        Score-B (25%): 기본 통계 (mean/std/edge/asp/peaks) z-score
+        Score-C (55%): 전극 형상 피처 (에너지 분포, FFT 층 주기, 히스토그램)
         """
         if db is None:
             return [], "DB 없음"
@@ -3353,41 +3452,51 @@ with tab4:
         q_feats  = {"mean": mean_b, "std": std_b, "edge": edge_d, "asp": aspect, "peaks": peaks_val}
         w_stats  = {"mean": 0.8, "std": 1.0, "edge": 1.5, "asp": 2.2, "peaks": 0.5}
         machines = db["machines"]
+        has_elec = (elec_q is not None) and bool(db.get("elec_features"))
 
-        # ── Tier-1: Hu 거리로 전체 랭킹 ──
+        # ── Tier-1: Hu 거리 전체 정렬 → Top-14 후보 ──
         t1 = []
         for mname, mdata in machines.items():
             hd = _hu_dist(hu_q, mdata.get("hu_mean"))
             t1.append((mname, hd if hd is not None else 1e9))
         t1.sort(key=lambda x: x[1])
-        top10 = [m for m, _ in t1[:10]]
+        top_n = 14 if has_elec else 10
+        top_candidates = [m for m, _ in t1[:top_n]]
 
-        # ── Tier-2: Top-10에 대해 Hu + 통계 결합 ──
+        # ── Tier-2: 결합 스코어 ──
         t2 = []
-        for mname in top10:
+        for mname in top_candidates:
             mdata  = machines[mname]
             stats  = mdata.get("stats", {})
-            # 통계 거리
+            # Score-A: Hu 거리 (정규화)
+            hd = _hu_dist(hu_q, mdata.get("hu_mean"))
+            hd_norm = min(hd / 10.0, 1.0) if hd is not None else 0.5
+            score_a = 1.0 - hd_norm
+            # Score-B: 통계 z-score 거리
             sd = sum(w * ((q_feats[f] - stats[f]["mu"]) / (stats[f]["sigma"] + 1e-6)) ** 2
                      for f, w in w_stats.items() if f in stats)
             sd_norm = sd / max(len(w_stats), 1)
-            # Hu 거리 (정규화: 0~1 근사)
-            hd = _hu_dist(hu_q, mdata.get("hu_mean"))
-            hd_norm = min(hd / 10.0, 1.0) if hd is not None else 0.5
-            # 가중 결합 (형상 60%, 통계 40%)
-            dist = 0.60 * hd_norm + 0.40 * _math.tanh(sd_norm / 5.0)
-            sim  = _math.exp(-dist * 3.5)
-            t2.append((mname, round(sim, 4), mdata.get("cell_type", "?"),
-                       mdata.get("view_counts", {}), sd_norm, hd_norm))
+            score_b = _math.exp(-_math.tanh(sd_norm / 5.0) * 3.5)
+            # Score-C: 전극 형상 피처
+            if has_elec:
+                elec_m = mdata.get("elec_mean", {})
+                score_c = _elec_similarity(elec_q, elec_m)
+                combined = 0.20 * score_a + 0.25 * score_b + 0.55 * score_c
+            else:
+                score_c = 0.5
+                combined = 0.40 * score_a + 0.60 * score_b
+            t2.append((mname, round(combined, 4), mdata.get("cell_type", "?"),
+                       mdata.get("view_counts", {}), sd_norm, hd_norm, score_c))
         t2.sort(key=lambda x: x[1], reverse=True)
 
-        # 정규화
+        # 정규화 (최고 → 0.97)
         if t2 and t2[0][1] > 0:
             top_v = t2[0][1]
-            t2 = [(m, round(min(s / top_v, 1.0) * 0.97, 4), ct, vc, sd, hd)
-                  for m, s, ct, vc, sd, hd in t2]
+            t2 = [(m, round(min(s / top_v, 1.0) * 0.97, 4), ct, vc, sd, hd, ec)
+                  for m, s, ct, vc, sd, hd, ec in t2]
 
-        method = f"2-Tier · DB {db.get('total_samples', 0)}장"
+        mode = "전극형상+통계" if has_elec else "통계전용"
+        method = f"3-Score({mode}) · DB {db.get('total_samples', 0)}장"
         return t2, method
 
     # ── 헤더 ──
@@ -3497,6 +3606,15 @@ with tab4:
         # Hu Moments (형상 기반)
         _arr_u8 = _np.clip(_arr, 0, 255).astype(_np.uint8)
         _hu_query = _compute_hu(_arr_u8)
+        # 전극 형상 피처 (에너지 분포) 추출
+        _elec_q_arr = _arr_u8
+        if max(_w, _h) > 1024:
+            _scale = 1024 / max(_w, _h)
+            _elec_q_arr = _np.array(
+                _img_gray.resize((int(_w * _scale), int(_h * _scale)), _PILImage.LANCZOS),
+                dtype=_np.uint8
+            )
+        _elec_query = _extract_elec_features_query(_elec_q_arr)
 
         # ── 강제 색상 CSS (화이트 테마/다크 테마 모두 대응 + 파일 업로더 화이트) ──
         st.markdown("""
@@ -3555,7 +3673,8 @@ with tab4:
         _ref_mname = ""
         if st.session_state.get("scan_done") and _SCAN_DB:
             _t2_results, _method = _db_similarity_2tier(
-                _mean_b, _std_b, _edge_d, _aspect, _peaks_val, _hu_query, _SCAN_DB
+                _mean_b, _std_b, _edge_d, _aspect, _peaks_val, _hu_query, _SCAN_DB,
+                elec_q=_elec_query
             )
             if _t2_results:
                 _top3_full = _t2_results[:3]
@@ -3988,14 +4107,72 @@ with tab4:
                         f'</tr>'
                     )
 
+                # ── 전극 형상 피처 행 추가 ──
+                _best_elec_mean = _best_mdata.get("elec_mean", {}) if _best_mdata else {}
+                _elec_feat_meta = [
+                    ("e_mid",    "⚡", "활물질 비율",    "중간 밝기(64~192) 픽셀 비율 — 양극/음극 활물질 영역",      ".3f", ""),
+                    ("e_dark",   "🔩", "집전체 비율",    "어두운 픽셀(<64) 비율 — Cu/Al 집전체, 금속 탭 영역",        ".3f", ""),
+                    ("e_bright", "💡", "저밀도 비율",    "밝은 픽셀(>192) 비율 — 분리막, 전해질, 공기층",            ".3f", ""),
+                    ("lp_norm",  "📏", "층 주기(정규화)", "층 1개 평균 두께 ÷ 이미지 높이 — 작을수록 층이 얇고 많음",  ".4f", ""),
+                    ("l_cv",     "📉", "층 균일도(CV)",  "층 간격 변동계수 — 낮을수록 층이 균일하게 쌓임",            ".3f", ""),
+                    ("n_layers", "🧱", "층 경계 수",     "검출된 층 경계(양극↔분리막↔음극 교대) 수",                  ".0f", "개"),
+                    ("v_freq",   "〰", "수직 FFT 주파수","층 반복 주파수(정규화×1000) — 층 주기의 역수",              ".2f", ""),
+                    ("zone_var", "🗺", "공간 분산",      "4×4 구역 밝기 분산 — 내부 재료 분포의 불균일도",            ".4f", ""),
+                ]
+                if _elec_query and _best_elec_mean:
+                    _feat_rows += (
+                        f'<tr><td colspan="5" style="padding:8px 0 4px;border-top:2px solid #334155">'
+                        f'<div style="color:#f59e0b;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:1px">'
+                        f'⚡ 전극 형상 피처 (Score-C · 55% 가중)</div></td></tr>'
+                    )
+                    for _ek, _eic, _elbl, _edesc, _efmt, _eunit in _elec_feat_meta:
+                        _ev = _elec_query.get(_ek, 0)
+                        _em = _best_elec_mean.get(_ek, {})
+                        if not isinstance(_em, dict):
+                            continue
+                        _emu  = _em.get("mu", 0)
+                        _esig = _em.get("sigma", 1.0)
+                        _ez   = abs(_ev - _emu) / (_esig + 1e-6)
+                        _ezc  = "#4ade80" if _ez < 0.8 else ("#f59e0b" if _ez < 1.5 else "#f87171")
+                        _ezl  = "매우 유사" if _ez < 0.8 else ("유사" if _ez < 1.5 else "차이 있음")
+                        _ebp  = max(0, min(100, int((1 - min(_ez, 3) / 3) * 100)))
+                        _feat_rows += (
+                            f'<tr style="border-bottom:1px solid #1e293b">'
+                            f'<td style="padding:8px 10px 8px 0;width:20px;font-size:14px">{_eic}</td>'
+                            f'<td style="padding:8px 12px 8px 0;min-width:90px">'
+                            f'<div style="color:#fcd34d;font-size:10px;font-weight:700">{_elbl}</div>'
+                            f'<div style="color:#475569;font-size:8px;line-height:1.4">{_edesc}</div>'
+                            f'</td>'
+                            f'<td style="padding:8px 12px;text-align:center;white-space:nowrap">'
+                            f'<div style="color:#60a5fa;font-size:13px;font-weight:800">{_ev:{_efmt}}{_eunit}</div>'
+                            f'<div style="color:#475569;font-size:8px">업로드</div>'
+                            f'</td>'
+                            f'<td style="padding:8px 12px;text-align:center;white-space:nowrap">'
+                            f'<div style="color:#a78bfa;font-size:13px;font-weight:800">{_emu:{_efmt}}{_eunit}</div>'
+                            f'<div style="color:#475569;font-size:8px">±{_esig:{_efmt}} (DB평균)</div>'
+                            f'</td>'
+                            f'<td style="padding:8px 0;min-width:120px">'
+                            f'<div style="display:flex;align-items:center;gap:6px">'
+                            f'<div style="flex:1;background:#0f172a;border-radius:4px;height:6px;overflow:hidden">'
+                            f'<div style="background:{_ezc};width:{_ebp}%;height:6px;border-radius:4px"></div>'
+                            f'</div>'
+                            f'<span style="color:{_ezc};font-size:9px;font-weight:700;white-space:nowrap">{_ezl}</span>'
+                            f'</div>'
+                            f'<div style="color:#475569;font-size:8px;margin-top:2px">{_ez:.2f}σ 차이</div>'
+                            f'</td>'
+                            f'</tr>'
+                        )
+
                 # ── 스코어 신뢰도 설명 ──
                 _conf_lv  = "높음 🟢" if _score_pct >= 80 else ("보통 🟡" if _score_pct >= 55 else "낮음 🔴")
+                _score_c_pct = round(_top3_full[0][6] * 100, 1) if len(_top3_full[0]) > 6 else 0.0
                 _conf_msg = (
                     f"{_score_pct:.0f}%는 DB 전체 {_SCAN_DB.get('total_samples',0)}장 중 가장 유사한 수치입니다. "
-                    "이 점수는 형상(Hu Moments) 60%와 통계 피처(밝기·대비·엣지·종횡비·피크) 40%를 가중 합산한 결과입니다."
+                    f"전극 형상(에너지 분포·FFT·층구조) 55% + 통계 피처 25% + Hu 외형 20%의 3-Score 가중 합산 결과이며, "
+                    f"전극 형상 점수 단독으로 {_score_c_pct:.0f}% 유사도를 보였습니다."
                     if _score_pct >= 80 else
                     f"일부 피처에서 차이가 있어 {_score_pct:.0f}%로 산출되었습니다. "
-                    "종횡비나 밝기 차이가 있으면 동일 장비라도 점수가 낮아질 수 있습니다."
+                    f"전극 형상 점수는 {_score_c_pct:.0f}%이며, 종횡비·밝기 차이가 있으면 동일 장비라도 점수가 낮아질 수 있습니다."
                 )
 
                 # ── 뷰타입 설명 ──
@@ -4026,16 +4203,23 @@ with tab4:
                     # 카드1: 분석 방식
                     '<div style="background:#1e293b;border-radius:12px;padding:14px">'
                     '<div style="color:#64748b;font-size:8px;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">🔬 분석 방식</div>'
-                    '<div style="color:#a78bfa;font-size:12px;font-weight:800;margin-bottom:8px">2단계 매칭 알고리즘</div>'
-                    '<div style="color:#475569;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">1단계 · 형상 스크리닝</div>'
+                    '<div style="color:#a78bfa;font-size:12px;font-weight:800;margin-bottom:8px">3-Score 매칭 알고리즘</div>'
+                    '<div style="color:#475569;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">스크리닝 · Hu Moments 외형 (20%)</div>'
                     '<div style="color:#94a3b8;font-size:9px;line-height:1.6;margin-bottom:8px">'
-                    'Hu Moments(7개 형상 불변량)를 이용해 이미지의 외형·윤곽 패턴을 수치화합니다. '
-                    f'전체 DB {_SCAN_DB.get("total_samples",0)}장 중 형상이 유사한 <b style="color:#e2e8f0">Top-10 후보</b>를 추려냅니다.'
+                    '7개 형상 불변량으로 외형 윤곽을 수치화. '
+                    f'전체 DB {_SCAN_DB.get("total_samples",0)}장 중 <b style="color:#e2e8f0">Top-14 후보</b>를 추려냅니다.'
                     '</div>'
-                    '<div style="color:#475569;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">2단계 · 통계 정밀 매칭</div>'
+                    '<div style="color:#475569;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Score-B · 기본 통계 (25%)</div>'
+                    '<div style="color:#94a3b8;font-size:9px;line-height:1.6;margin-bottom:8px">'
+                    '밝기·대비·엣지·종횡비·히스토 피크 5개 z-score 거리 비교.'
+                    '</div>'
+                    '<div style="color:#f59e0b;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">⚡ Score-C · 전극 형상 (55%)</div>'
                     '<div style="color:#94a3b8;font-size:9px;line-height:1.6">'
-                    '후보군을 대상으로 5가지 통계 피처를 비교합니다. '
-                    '<b style="color:#e2e8f0">형상 60% + 통계 40%</b>로 가중 합산해 최종 유사도를 산출합니다.'
+                    '<b style="color:#fcd34d">에너지 분포 히스토그램</b>(8구간 재료 지문), '
+                    '<b style="color:#fcd34d">FFT 층 주기</b>(v_freq·h_freq), '
+                    '<b style="color:#fcd34d">재료 비율</b>(e_bright/e_mid/e_dark), '
+                    '<b style="color:#fcd34d">층 균일도</b>(lp_norm·l_cv·n_layers), '
+                    '<b style="color:#fcd34d">공간 분산</b>(zone_var) — 총 12개 피처.'
                     '</div>'
                     '</div>'
 
@@ -4079,9 +4263,11 @@ with tab4:
                     '<div style="color:#a78bfa;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">💡 왜 이 장비가 1위인가?</div>'
                     f'<div style="color:#cbd5e1;font-size:10px;line-height:1.8">'
                     f'업로드 이미지는 <span style="color:#60a5fa;font-weight:600">{_upload_view_lbl}</span>(종횡비 {_aspect:.2f})로 분석되었습니다. '
-                    f'DB {_SCAN_DB.get("total_samples",0)}장을 대상으로 Hu Moments 형상 분석 → Top-10 후보 추출 → 통계 피처 정밀 비교를 거쳐, '
-                    f'<span style="color:#a78bfa;font-weight:700">{_top3[0][0]}</span>이 {_reason_str} 등에서 가장 근접한 값을 보였습니다. '
-                    f'2위 <span style="color:#6366f1;font-weight:600">{_top3[1][0] if len(_top3)>1 else "—"}</span>({_top3[1][1]*100:.1f}%)과 비교했을 때도 '
+                    f'DB {_SCAN_DB.get("total_samples",0)}장 대상 Hu 외형 스크리닝(20%) → 통계 피처(25%) → '
+                    f'<span style="color:#fcd34d;font-weight:700">전극 형상 에너지 분포(55%)</span> 3-Score 분석을 거쳐, '
+                    f'<span style="color:#a78bfa;font-weight:700">{_top3[0][0]}</span>이 {_reason_str} 등 전극 피처에서 가장 근접했습니다. '
+                    f'전극 형상 Score-C만 단독으로도 <span style="color:#fcd34d;font-weight:700">{_score_c_pct:.0f}%</span>를 기록했으며, '
+                    f'2위 <span style="color:#6366f1;font-weight:600">{_top3[1][0] if len(_top3)>1 else "—"}</span>({_top3[1][1]*100:.1f}%)보다 '
                     f'<span style="color:#4ade80;font-weight:700">{(_top3[0][1]-_top3[1][1])*100:.1f}%p</span> 앞서 명확히 1위입니다.'
                     '</div>'
                     '</div>'
