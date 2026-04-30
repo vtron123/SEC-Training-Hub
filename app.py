@@ -3396,7 +3396,58 @@ with tab4:
         _arr_u8 = _np.clip(_arr, 0, 255).astype(_np.uint8)
         _hu_query = _compute_hu(_arr_u8)
 
-        # ── 좌우 레이아웃 ──
+        # ── 스캔 버튼 (전체 너비) ──
+        if st.button("🔍  스캔 시작", type="primary", use_container_width=True, key="scan_btn"):
+            st.session_state["scan_done"] = True
+
+        # ── 스캔 결과 사전 계산 ──
+        _top3_full = []
+        _top3      = []
+        _method    = ""
+        _ref_imgs_found = []
+        _ref_mname = ""
+        if st.session_state.get("scan_done") and _SCAN_DB:
+            _t2_results, _method = _db_similarity_2tier(
+                _mean_b, _std_b, _edge_d, _aspect, _peaks_val, _hu_query, _SCAN_DB
+            )
+            if _t2_results:
+                _top3_full = _t2_results[:3]
+                _top3      = [(r[0], r[1]) for r in _top3_full]
+            else:
+                _scores = []
+                _is_radial = 0.85 <= _aspect <= 1.15
+                for _mname in MACHINE_LIST[1:]:
+                    _s = 0.0
+                    if _is_radial and ("원통형" in _mname): _s += 0.25
+                    if 60 <= _mean_b <= 170: _s += 0.20
+                    if _std_b > 40: _s += 0.15
+                    if _edge_d > 0.04: _s += 0.10
+                    _h16 = int(_hashlib.md5((_mname + str(round(_mean_b, -1))).encode()).hexdigest()[:6], 16)
+                    _s += (_h16 / 16777215.0) * 0.30
+                    _scores.append((_mname, min(_s, 0.99)))
+                _scores.sort(key=lambda x: x[1], reverse=True)
+                _top3 = _scores[:3]
+                _top3_full = [(m, s, "?", {}, 0, 0) for m, s in _top3]
+                _method = "휴리스틱"
+            # 참조 이미지 경로 조회
+            _ref_mname = _top3_full[0][0] if _top3_full else ""
+            if _ref_mname:
+                _base_dir      = os.path.dirname(os.path.abspath(__file__))
+                _manifest_path = os.path.join(_base_dir, "ref_imgs", "manifest.json")
+                if os.path.exists(_manifest_path):
+                    try:
+                        with open(_manifest_path, encoding="utf-8") as _mf:
+                            _manifest = json.load(_mf)
+                        _folder_id = _manifest.get(_ref_mname)
+                        if _folder_id:
+                            for _ri in range(2):
+                                _rp = os.path.join(_base_dir, "ref_imgs", _folder_id, f"{_ri}.jpg")
+                                if os.path.exists(_rp):
+                                    _ref_imgs_found.append(_rp)
+                    except Exception:
+                        pass
+
+        # ── Row 1: 이미지 나란히 ──
         _sc_l, _sc_r = st.columns(2)
 
         # ── 왼쪽: 업로드 이미지 ──
@@ -3443,60 +3494,50 @@ with tab4:
             </div>
             """, unsafe_allow_html=True)
 
-        # ── 오른쪽: 유사 모델 ──
+        # ── 오른쪽: 참조 이미지 ──
         with _sc_r:
-            if st.button("🔍  스캔 시작", type="primary", use_container_width=True, key="scan_btn"):
-                st.session_state["scan_done"] = True
-
             if not st.session_state.get("scan_done"):
                 st.markdown("""
-                <div style="background:white;border-radius:14px;padding:48px 24px;
-                text-align:center;box-shadow:0 2px 8px rgba(0,0,0,0.07);margin-top:8px">
-                  <div style="font-size:36px;margin-bottom:10px">🎯</div>
-                  <div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:4px">
-                    스캔 준비 완료</div>
-                  <div style="font-size:11px;color:#9ca3af">
-                    좌측 버튼을 눌러 분석을 시작하세요</div>
+                <div style="background:#1e293b;border-radius:14px;height:100%;min-height:300px;
+                display:flex;align-items:center;justify-content:center;padding:48px 24px;text-align:center">
+                  <div>
+                    <div style="font-size:36px;margin-bottom:10px">🎯</div>
+                    <div style="font-size:12px;font-weight:600;color:#94a3b8;margin-bottom:4px">
+                      참조 이미지</div>
+                    <div style="font-size:11px;color:#475569">스캔 후 매칭 이미지가 표시됩니다</div>
+                  </div>
                 </div>
                 """, unsafe_allow_html=True)
             else:
-                # ── 2-Tier 유사도 매칭 ──
-                _t2_results, _method = _db_similarity_2tier(
-                    _mean_b, _std_b, _edge_d, _aspect, _peaks_val, _hu_query, _SCAN_DB
-                )
-                if _t2_results:
-                    _top3_full = _t2_results[:3]
-                    # _top3_full = [(mname, score, cell_type, view_counts, sd_norm, hd_norm), ...]
-                    _top3 = [(r[0], r[1]) for r in _top3_full]
+                st.markdown(f"""
+                <div style="background:#0f172a;border-radius:14px;padding:10px 12px 6px;margin-bottom:8px">
+                  <div style="color:#64748b;font-size:9px;font-weight:700;letter-spacing:2px;
+                  text-transform:uppercase;margin-bottom:6px">📷 참조 이미지 — {_ref_mname}</div>
+                </div>
+                """, unsafe_allow_html=True)
+                if _ref_imgs_found:
+                    for _rp in _ref_imgs_found:
+                        try:
+                            st.image(Image.open(_rp), use_container_width=True)
+                        except Exception:
+                            pass
                 else:
-                    # 휴리스틱 fallback
-                    _scores = []
-                    _is_radial = 0.85 <= _aspect <= 1.15
-                    for _mname in MACHINE_LIST[1:]:
-                        _s = 0.0
-                        if _is_radial and ("원통형" in _mname):
-                            _s += 0.25
-                        if 60 <= _mean_b <= 170:
-                            _s += 0.20
-                        if _std_b > 40:
-                            _s += 0.15
-                        if _edge_d > 0.04:
-                            _s += 0.10
-                        _h16 = int(_hashlib.md5((_mname + str(round(_mean_b, -1))).encode()).hexdigest()[:6], 16)
-                        _s += (_h16 / 16777215.0) * 0.30
-                        _scores.append((_mname, min(_s, 0.99)))
-                    _scores.sort(key=lambda x: x[1], reverse=True)
-                    _top3 = _scores[:3]
-                    _top3_full = [(m, s, "?", {}, 0, 0) for m, s in _top3]
-                    _method = "휴리스틱"
+                    st.markdown('<div style="color:#475569;font-size:11px;padding:12px">이미지를 불러올 수 없습니다</div>',
+                                unsafe_allow_html=True)
 
-                # ── BEST MATCH 카드 ──
+        # ── Row 2: 유사도 결과 (이미지 아래) ──
+        if st.session_state.get("scan_done") and _top3_full:
+            st.markdown('<div style="margin-top:12px"></div>', unsafe_allow_html=True)
+            _res_l, _res_r = st.columns([1, 1])
+
+            # ── BEST MATCH 카드 ──
+            with _res_l:
                 _best_ct_icon = {"cylindrical": "🔋", "pouch": "📦",
                                  "prismatic": "🔲", "jig": "🔧"}.get(
                     _top3_full[0][2] if _top3_full else "?", "❓")
                 _hu_ok_str = "형상+통계" if _hu_query else "통계 기반"
                 st.markdown(f"""
-                <div style="background:#0f172a;border-radius:14px;padding:12px 14px;margin-bottom:8px">
+                <div style="background:#0f172a;border-radius:14px;padding:12px 14px;height:100%">
                   <div style="color:#64748b;font-size:9px;font-weight:700;letter-spacing:2px;
                   text-transform:uppercase;margin-bottom:8px">🎯 BEST MATCH · {_hu_ok_str}</div>
                   <div style="color:#a78bfa;font-size:16px;font-weight:800;margin-bottom:2px">
@@ -3514,7 +3555,8 @@ with tab4:
                 </div>
                 """, unsafe_allow_html=True)
 
-                # ── Top-3 순위 바 ──
+            # ── Top-3 순위 바 ──
+            with _res_r:
                 st.markdown("""
                 <div style="background:white;border-radius:12px;padding:14px 16px;
                 box-shadow:0 2px 8px rgba(0,0,0,0.07)">
@@ -3542,41 +3584,6 @@ with tab4:
                     </div>
                     """, unsafe_allow_html=True)
                 st.markdown("</div>", unsafe_allow_html=True)
-
-                # ── 참조 이미지 미리보기 (ref_imgs/ + manifest.json) ──
-                _ref_mname = _top3_full[0][0] if _top3_full else ""
-                if _ref_mname:
-                    _base_dir      = os.path.dirname(os.path.abspath(__file__))
-                    _manifest_path = os.path.join(_base_dir, "ref_imgs", "manifest.json")
-                    _ref_imgs_found = []
-                    if os.path.exists(_manifest_path):
-                        try:
-                            with open(_manifest_path, encoding="utf-8") as _mf:
-                                _manifest = json.load(_mf)
-                            _folder_id = _manifest.get(_ref_mname)
-                            if _folder_id:
-                                for _ri in range(2):
-                                    _rp = os.path.join(_base_dir, "ref_imgs", _folder_id, f"{_ri}.jpg")
-                                    if os.path.exists(_rp):
-                                        _ref_imgs_found.append(_rp)
-                        except Exception:
-                            pass
-                    if _ref_imgs_found:
-                        st.markdown(f"""
-                        <div style="margin-top:10px;background:#0f172a;border-radius:12px;
-                        padding:10px 12px 6px">
-                          <div style="color:#64748b;font-size:8px;font-weight:700;
-                          letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">
-                            📷 참조 이미지 — {_ref_mname}
-                          </div>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        _img_cols = st.columns(len(_ref_imgs_found))
-                        for _ci, _rp in enumerate(_ref_imgs_found):
-                            try:
-                                _img_cols[_ci].image(Image.open(_rp), use_container_width=True)
-                            except Exception:
-                                pass
 
         # ── 하단: 자동 분석 결과 (GLIMPSE 스타일) ──
         if st.session_state.get("scan_done"):
