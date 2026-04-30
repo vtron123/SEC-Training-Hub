@@ -3396,21 +3396,7 @@ with tab4:
         _arr_u8 = _np.clip(_arr, 0, 255).astype(_np.uint8)
         _hu_query = _compute_hu(_arr_u8)
 
-        # ── 강제 색상 CSS (화이트 테마/다크 테마 모두 대응) ──
-        st.markdown("""
-        <style>
-        .scan-card { color:#1e293b !important; }
-        .scan-card * { color:inherit; }
-        .scan-dark { color:#f1f5f9 !important; }
-        .scan-dark * { color:inherit; }
-        .scan-label { color:#64748b !important; font-size:9px; font-weight:700;
-                      letter-spacing:1.5px; text-transform:uppercase; }
-        .scan-val   { color:#0f172a !important; font-size:14px; font-weight:800; }
-        .scan-sub   { color:#94a3b8 !important; font-size:9px; }
-        </style>
-        """, unsafe_allow_html=True)
-
-        # ── 스캔 버튼 ──
+        # ── 스캔 버튼 (전체 너비) ──
         if st.button("🔍  스캔 시작", type="primary", use_container_width=True, key="scan_btn"):
             st.session_state["scan_done"] = True
 
@@ -3461,273 +3447,275 @@ with tab4:
                     except Exception:
                         pass
 
-        # ════════════════════════════════════════════
-        # ── 메인 블록 컨테이너 ──
-        # ════════════════════════════════════════════
-
         # ── Row 1: 이미지 나란히 ──
         _sc_l, _sc_r = st.columns(2)
 
+        # ── 왼쪽: 업로드 이미지 ──
         with _sc_l:
-            st.markdown("""<div style="background:#0f172a;border-radius:16px;padding:12px 14px 8px">
+            st.markdown("""
+            <div style="background:#0f172a;border-radius:14px;padding:10px 12px 6px;margin-bottom:8px">
               <div style="color:#64748b;font-size:9px;font-weight:700;letter-spacing:2px;
-              text-transform:uppercase;margin-bottom:8px">📤 UPLOADED IMAGE</div>""",
-              unsafe_allow_html=True)
+              text-transform:uppercase;margin-bottom:6px">📤 UPLOADED IMAGE</div>
+            """, unsafe_allow_html=True)
             st.image(_img_rgb, use_column_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
+            # 이미지 기본 정보
+            _meta_rows_html = (
+                f'<tr><td style="color:#6b7280;padding:4px 0;border-bottom:1px solid #f3f4f6">해상도</td>'
+                f'<td style="font-weight:600;text-align:right;border-bottom:1px solid #f3f4f6">{_w} × {_h} px</td></tr>'
+                f'<tr><td style="color:#6b7280;padding:4px 0;border-bottom:1px solid #f3f4f6">평균 밝기</td>'
+                f'<td style="font-weight:600;text-align:right;border-bottom:1px solid #f3f4f6">{_mean_b:.1f} / 255</td></tr>'
+                f'<tr><td style="color:#6b7280;padding:4px 0;border-bottom:1px solid #f3f4f6">명암 대비</td>'
+                f'<td style="font-weight:600;text-align:right;border-bottom:1px solid #f3f4f6">{_std_b:.1f}</td></tr>'
+                f'<tr><td style="color:#6b7280;padding:4px 0;border-bottom:1px solid #f3f4f6">종횡비</td>'
+                f'<td style="font-weight:600;text-align:right;border-bottom:1px solid #f3f4f6">{"정방형(단면)" if 0.85<=_aspect<=1.15 else ("가로형" if _aspect>1.15 else "세로형(측면)")}</td></tr>'
+                f'<tr><td style="color:#6b7280;padding:4px 0{"" if not _dicom_meta else ";border-bottom:1px solid #f3f4f6"}">엣지 밀도</td>'
+                f'<td style="font-weight:600;text-align:right">{"높음 (복잡한 구조)" if _edge_d>0.06 else ("보통" if _edge_d>0.03 else "낮음")}</td></tr>'
+            )
+            if _dicom_meta:
+                _dcm_items = list(_dicom_meta.items())
+                for _di, (_dk, _dv_str) in enumerate(_dcm_items):
+                    _is_last = _di == len(_dcm_items) - 1
+                    _bd = "" if _is_last else ";border-bottom:1px solid #f3f4f6"
+                    _meta_rows_html += (
+                        f'<tr><td style="color:#7c3aed;padding:4px 0{_bd}">{_dk}</td>'
+                        f'<td style="font-weight:600;text-align:right{_bd}">{_dv_str}</td></tr>'
+                    )
+            _info_label = "📋 DICOM INFO" if _is_dcm else "📋 IMAGE INFO"
+            st.markdown(f"""
+            <div style="background:white;border-radius:12px;padding:14px 16px;
+            box-shadow:0 2px 8px rgba(0,0,0,0.07)">
+              <div style="font-size:9px;font-weight:700;color:#7c3aed;letter-spacing:2px;
+              text-transform:uppercase;margin-bottom:10px">{_info_label}</div>
+              <table style="width:100%;font-size:11px;border-collapse:collapse">
+                {_meta_rows_html}
+              </table>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # ── 오른쪽: 참조 이미지 (업로드 이미지와 동일 구조) ──
         with _sc_r:
-            _ref_lbl = f"📷 참조 — {_ref_mname[:30]}" if _ref_mname else "📷 참조 이미지"
-            st.markdown(f"""<div style="background:#0f172a;border-radius:16px;padding:12px 14px 8px">
+            _ref_title = f"📷 참조 이미지 — {_ref_mname}" if _ref_mname else "📷 참조 이미지"
+            st.markdown(f"""
+            <div style="background:#0f172a;border-radius:14px;padding:10px 12px 6px;margin-bottom:8px">
               <div style="color:#64748b;font-size:9px;font-weight:700;letter-spacing:2px;
-              text-transform:uppercase;margin-bottom:8px">{_ref_lbl}</div>""",
-              unsafe_allow_html=True)
+              text-transform:uppercase;margin-bottom:6px">{_ref_title}</div>
+            """, unsafe_allow_html=True)
             if not st.session_state.get("scan_done"):
-                st.markdown("""<div style="min-height:260px;display:flex;align-items:center;
-                justify-content:center;color:#334155;font-size:24px;text-align:center">🎯</div>""",
-                unsafe_allow_html=True)
+                st.markdown("""
+                <div style="display:flex;align-items:center;justify-content:center;
+                min-height:300px;color:#334155;font-size:12px;text-align:center">
+                  🎯<br>스캔 후 표시
+                </div>""", unsafe_allow_html=True)
             elif _ref_imgs_found:
+                # 첫 번째 이미지를 전체 너비로 (업로드 이미지와 평행)
                 try:
-                    # 업로드 이미지와 같은 종횡비로 크롭/리사이즈
-                    _rimg = Image.open(_ref_imgs_found[0]).convert("RGB")
-                    _tw, _th = _img_rgb.size
-                    # 참조이미지를 업로드 이미지와 동일 비율로 center-crop
-                    _rw, _rh = _rimg.size
-                    _tratio = _tw / _th
-                    _rratio = _rw / _rh
-                    if _rratio > _tratio:
-                        _nc_w = int(_rh * _tratio)
-                        _x0 = (_rw - _nc_w) // 2
-                        _rimg = _rimg.crop((_x0, 0, _x0 + _nc_w, _rh))
-                    elif _rratio < _tratio:
-                        _nc_h = int(_rw / _tratio)
-                        _y0 = (_rh - _nc_h) // 2
-                        _rimg = _rimg.crop((0, _y0, _rw, _y0 + _nc_h))
-                    st.image(_rimg, use_column_width=True)
+                    st.image(Image.open(_ref_imgs_found[0]), use_column_width=True)
                 except Exception as _e:
-                    st.markdown(f'<div style="color:#f87171;padding:8px;font-size:10px">오류: {_e}</div>',
+                    st.markdown(f'<div style="color:#f87171;font-size:10px;padding:8px">오류: {_e}</div>',
                                 unsafe_allow_html=True)
             else:
-                st.markdown(f"""<div style="min-height:260px;display:flex;align-items:center;
-                justify-content:center;color:#475569;font-size:10px;text-align:center">
-                참조 이미지 없음</div>""", unsafe_allow_html=True)
+                st.markdown(f"""
+                <div style="display:flex;align-items:center;justify-content:center;
+                min-height:300px;color:#475569;font-size:10px;text-align:center">
+                  참조 이미지 없음<br>
+                  <span style="font-size:8px">{_ref_mname}</span>
+                </div>""", unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
-        # ── Row 2: BEST MATCH + Top-3 (이미지 아래) ──
+        # ── Row 2: 유사도 결과 (이미지 아래) ──
         if st.session_state.get("scan_done") and _top3_full:
-            st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
-            _best_ct_icon = {"cylindrical":"🔋","pouch":"📦","prismatic":"🔲","jig":"🔧"}.get(
-                _top3_full[0][2], "❓")
-            _hu_ok_str = "형상+통계" if _hu_query else "통계"
-            _score_pct = _top3[0][1] * 100
-            _score_col = "#4ade80" if _score_pct>=80 else ("#f59e0b" if _score_pct>=55 else "#f87171")
+            st.markdown('<div style="margin-top:12px"></div>', unsafe_allow_html=True)
+            _res_l, _res_r = st.columns([1, 1])
 
-            _bm_l, _bm_r = st.columns([1, 1])
-            with _bm_l:
+            # ── BEST MATCH 카드 ──
+            with _res_l:
+                _best_ct_icon = {"cylindrical": "🔋", "pouch": "📦",
+                                 "prismatic": "🔲", "jig": "🔧"}.get(
+                    _top3_full[0][2] if _top3_full else "?", "❓")
+                _hu_ok_str = "형상+통계" if _hu_query else "통계 기반"
                 st.markdown(f"""
-                <div style="background:#0f172a;border-radius:16px;padding:16px 18px">
-                  <div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;
-                  text-transform:uppercase;margin-bottom:10px">🎯 BEST MATCH · {_hu_ok_str}</div>
-                  <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-                    <div style="background:{_score_col}22;border:2px solid {_score_col};
-                    border-radius:50%;width:56px;height:56px;display:flex;align-items:center;
-                    justify-content:center;font-size:16px;font-weight:900;color:{_score_col};flex-shrink:0">
-                      {_score_pct:.0f}%</div>
-                    <div>
-                      <div style="color:#a78bfa;font-size:15px;font-weight:800;line-height:1.2">
-                        {_best_ct_icon} {_top3[0][0]}</div>
-                      <div style="color:#64748b;font-size:9px;margin-top:3px">
-                        DB {_SCAN_DB.get('total_samples',0)}장 비교</div>
-                    </div>
+                <div style="background:#0f172a;border-radius:14px;padding:12px 14px;height:100%">
+                  <div style="color:#64748b;font-size:9px;font-weight:700;letter-spacing:2px;
+                  text-transform:uppercase;margin-bottom:8px">🎯 BEST MATCH · {_hu_ok_str}</div>
+                  <div style="color:#a78bfa;font-size:16px;font-weight:800;margin-bottom:2px">
+                    {_best_ct_icon} {_top3[0][0]}</div>
+                  <div style="color:#4ade80;font-size:13px;font-weight:700;margin-bottom:10px">
+                    유사도 {_top3[0][1]*100:.1f}%</div>
+                  <div style="background:#1e293b;border-radius:8px;padding:8px 12px;
+                  color:#64748b;font-size:10px;line-height:1.7">
+                    <span style="color:#94a3b8">알고리즘:</span> {_method}<br>
+                    <span style="color:#94a3b8">밝기</span> {_mean_b:.0f}
+                    · <span style="color:#94a3b8">대비</span> {_std_b:.0f}
+                    · <span style="color:#94a3b8">엣지</span> {_edge_d:.3f}
+                    · <span style="color:#94a3b8">종횡비</span> {_aspect:.2f}
                   </div>
-                  <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px">
-                    <div style="background:#1e293b;border-radius:8px;padding:6px 4px;text-align:center">
-                      <div style="color:#475569;font-size:7px;margin-bottom:2px">밝기</div>
-                      <div style="color:#e2e8f0;font-size:12px;font-weight:700">{_mean_b:.0f}</div>
-                    </div>
-                    <div style="background:#1e293b;border-radius:8px;padding:6px 4px;text-align:center">
-                      <div style="color:#475569;font-size:7px;margin-bottom:2px">대비</div>
-                      <div style="color:#e2e8f0;font-size:12px;font-weight:700">{_std_b:.0f}</div>
-                    </div>
-                    <div style="background:#1e293b;border-radius:8px;padding:6px 4px;text-align:center">
-                      <div style="color:#475569;font-size:7px;margin-bottom:2px">엣지</div>
-                      <div style="color:#e2e8f0;font-size:12px;font-weight:700">{_edge_d:.3f}</div>
-                    </div>
-                    <div style="background:#1e293b;border-radius:8px;padding:6px 4px;text-align:center">
-                      <div style="color:#475569;font-size:7px;margin-bottom:2px">종횡비</div>
-                      <div style="color:#e2e8f0;font-size:12px;font-weight:700">{_aspect:.2f}</div>
-                    </div>
-                  </div>
-                </div>""", unsafe_allow_html=True)
+                </div>
+                """, unsafe_allow_html=True)
 
-            with _bm_r:
-                _medals = ["🥇","🥈","🥉"]
-                _bar_colors = ["#a855f7","#6366f1","#8b5cf6"]
-                _top3_html = ""
+            # ── Top-3 순위 바 ──
+            with _res_r:
+                st.markdown("""
+                <div style="background:white;border-radius:12px;padding:14px 16px;
+                box-shadow:0 2px 8px rgba(0,0,0,0.07)">
+                  <div style="font-size:9px;font-weight:700;color:#7c3aed;letter-spacing:2px;
+                  text-transform:uppercase;margin-bottom:12px">📊 유사 모델 순위 Top-3</div>
+                """, unsafe_allow_html=True)
+                _medals = ["🥇", "🥈", "🥉"]
+                _bar_colors = ["#a855f7", "#6366f1", "#8b5cf6"]
                 for _ri, (_mn, _ms) in enumerate(_top3):
                     _pct = _ms * 100
-                    _ct_icon = {"cylindrical":"🔋","pouch":"📦","prismatic":"🔲","jig":"🔧"}.get(
-                        _top3_full[_ri][2], "")
-                    _top3_html += f"""
-                    <div style="margin-bottom:14px">
-                      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
-                        <span style="color:#e2e8f0;font-size:11px;font-weight:600">
-                          {_medals[_ri]} {_ct_icon} {_mn}</span>
-                        <span style="color:{_bar_colors[_ri]};font-size:13px;font-weight:800">{_pct:.1f}%</span>
+                    _ct_icon = {"cylindrical": "🔋", "pouch": "📦", "prismatic": "🔲",
+                                "jig": "🔧"}.get(_top3_full[_ri][2], "")
+                    st.markdown(f"""
+                    <div style="margin-bottom:12px">
+                      <div style="display:flex;justify-content:space-between;
+                      align-items:center;margin-bottom:4px">
+                        <span style="font-size:11px;font-weight:600">{_medals[_ri]} {_ct_icon} {_mn}</span>
+                        <span style="font-size:12px;font-weight:700;color:{_bar_colors[_ri]}">{_pct:.1f}%</span>
                       </div>
-                      <div style="background:#1e293b;border-radius:6px;height:10px;overflow:hidden">
-                        <div style="background:linear-gradient(90deg,{_bar_colors[_ri]},{_bar_colors[_ri]}88);
-                        width:{int(_pct)}%;height:10px;border-radius:6px;
-                        box-shadow:0 0 8px {_bar_colors[_ri]}66"></div>
+                      <div style="background:#f3f4f6;border-radius:6px;height:8px;overflow:hidden">
+                        <div style="background:linear-gradient(90deg,{_bar_colors[_ri]},
+                        {_bar_colors[_ri]}99);width:{int(_pct)}%;height:8px;
+                        border-radius:6px"></div>
                       </div>
-                    </div>"""
-                st.markdown(f"""
-                <div style="background:#0f172a;border-radius:16px;padding:16px 18px">
-                  <div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;
-                  text-transform:uppercase;margin-bottom:14px">📊 유사 모델 순위 TOP-3</div>
-                  {_top3_html}
-                </div>""", unsafe_allow_html=True)
+                    </div>
+                    """, unsafe_allow_html=True)
+                st.markdown("</div>", unsafe_allow_html=True)
 
-        # ── Row 3: 인포그래픽 메트릭 카드 ──
+        # ── 하단: 자동 분석 결과 (GLIMPSE 스타일) ──
         if st.session_state.get("scan_done"):
-            st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
+            st.markdown('<div style="margin-top:14px"></div>', unsafe_allow_html=True)
+            st.markdown("""
+            <div style="background:#0f172a;border-radius:14px;padding:14px 16px 10px">
+              <div style="color:#64748b;font-size:9px;font-weight:700;letter-spacing:2px;
+              text-transform:uppercase;margin-bottom:12px">⚙️ AUTOMATED ANALYSIS RESULTS</div>
+            """, unsafe_allow_html=True)
+            _m1, _m2, _m3, _m4, _m5 = st.columns(5)
+            _analysis_items = [
+                ("해상도", f"{_w}×{_h}", "px", _m1),
+                ("평균 밝기", f"{_mean_b:.1f}", "/ 255", _m2),
+                ("명암 대비", f"{_std_b:.1f}", "σ", _m3),
+                ("엣지 밀도", f"{_edge_d:.3f}", "", _m4),
+                ("추정 유형", "단면" if 0.85<=_aspect<=1.15 else "측면", "", _m5),
+            ]
+            for _lbl, _val, _unit, _col in _analysis_items:
+                _col.markdown(f"""
+                <div style="background:#1e293b;border-radius:10px;padding:10px 8px;text-align:center">
+                  <div style="color:#64748b;font-size:9px;text-transform:uppercase;
+                  letter-spacing:1px;margin-bottom:4px">{_lbl}</div>
+                  <div style="color:white;font-size:15px;font-weight:800">{_val}</div>
+                  <div style="color:#475569;font-size:9px">{_unit}</div>
+                </div>
+                """, unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
 
-            # 이미지 유형 판별
-            _img_type     = "단면 (Cross-section)" if 0.85<=_aspect<=1.15 else \
-                            ("측면 (Side)" if _aspect < 0.85 else "가로형 (Wide)")
-            _img_type_ico = "⭕" if 0.85<=_aspect<=1.15 else "📏"
-            _bright_lbl   = "밝음" if _mean_b > 160 else ("보통" if _mean_b > 80 else "어두움")
-            _bright_pct   = int(_mean_b / 255 * 100)
-            _contrast_lbl = "높음" if _std_b > 60 else ("보통" if _std_b > 30 else "낮음")
-            _contrast_pct = int(min(_std_b / 80 * 100, 100))
-            _edge_lbl     = "복잡" if _edge_d > 0.06 else ("보통" if _edge_d > 0.03 else "단순")
-            _edge_pct     = int(min(_edge_d / 0.12 * 100, 100))
-            _res_mp       = round(_w * _h / 1_000_000, 1)
+            # ═══════════════════════════════════════════════════════
+            # ── 심층 분석 UI (유사도 결과 아래) ──
+            # ═══════════════════════════════════════════════════════
+            st.markdown('<div style="margin-top:18px"></div>', unsafe_allow_html=True)
+            st.markdown("""
+            <div style="background:#0f172a;border-radius:14px;padding:14px 16px 10px;margin-bottom:12px">
+              <div style="color:#64748b;font-size:9px;font-weight:700;letter-spacing:2px;
+              text-transform:uppercase;margin-bottom:2px">🔍 DEEP ANALYSIS</div>
+              <div style="color:#94a3b8;font-size:10px">업로드 이미지 피처 vs 매칭 장비 분포 비교</div>
+            </div>
+            """, unsafe_allow_html=True)
 
-            _c1,_c2,_c3,_c4,_c5 = st.columns(5)
-            def _metric_card(col, icon, label, val, sub, pct, color):
-                _bar = f'<div style="background:#e2e8f0;border-radius:4px;height:5px;margin-top:8px;overflow:hidden"><div style="background:{color};width:{pct}%;height:5px;border-radius:4px"></div></div>' if pct is not None else ""
-                col.markdown(f"""
-                <div style="background:white;border-radius:14px;padding:14px 12px;
-                box-shadow:0 2px 10px rgba(0,0,0,0.08);text-align:center;border-top:3px solid {color}">
-                  <div style="font-size:22px;margin-bottom:4px">{icon}</div>
-                  <div style="color:#6b7280;font-size:8px;font-weight:700;letter-spacing:1px;
-                  text-transform:uppercase;margin-bottom:4px">{label}</div>
-                  <div style="color:#111827;font-size:16px;font-weight:800;margin-bottom:2px">{val}</div>
-                  <div style="color:#9ca3af;font-size:9px">{sub}</div>
-                  {_bar}
-                </div>""", unsafe_allow_html=True)
-
-            _metric_card(_c1, "🖼️", "해상도", f"{_w}×{_h}", f"{_res_mp}MP", None, "#6366f1")
-            _metric_card(_c2, "☀️", "평균 밝기", f"{_mean_b:.0f}", _bright_lbl, _bright_pct, "#f59e0b")
-            _metric_card(_c3, "🌗", "명암 대비", f"{_std_b:.0f}", _contrast_lbl, _contrast_pct, "#8b5cf6")
-            _metric_card(_c4, "🔍", "엣지 밀도", f"{_edge_d:.3f}", _edge_lbl, _edge_pct, "#06b6d4")
-            _metric_card(_c5, _img_type_ico, "이미지 유형", _img_type.split()[0], _img_type, None, "#10b981")
-
-            # ── Row 4: Deep Analysis (장비 피처 비교) ──
+            # ── 피처 비교 바 차트 (업로드 vs Top-1 장비 평균) ──
             if _SCAN_DB and _top3_full:
                 _best_mname = _top3_full[0][0]
                 _best_mdata = _SCAN_DB["machines"].get(_best_mname, {})
                 _best_stats = _best_mdata.get("stats", {})
-                _hu_ref     = _best_mdata.get("hu_mean")
 
-                st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
-                st.markdown(f"""
-                <div style="background:#0f172a;border-radius:16px;padding:14px 18px 10px">
-                  <div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;
-                  text-transform:uppercase;margin-bottom:4px">🔍 DEEP ANALYSIS</div>
-                  <div style="color:#94a3b8;font-size:10px;margin-bottom:14px">
-                    업로드 피처 vs <span style="color:#a78bfa;font-weight:700">{_best_mname}</span> 분포 비교
-                  </div>""", unsafe_allow_html=True)
-
-                _feat_defs = [
-                    ("mean",  "☀️", "평균 밝기", _mean_b,     0,   255, "#60a5fa"),
-                    ("std",   "🌗", "명암 대비", _std_b,      0,   128, "#34d399"),
-                    ("edge",  "🔍", "엣지 밀도", _edge_d,     0,  0.15, "#f59e0b"),
-                    ("asp",   "📐", "종횡비",    _aspect,    0.3,   3.0, "#a78bfa"),
-                    ("peaks", "📊", "히스토 피크",_peaks_val, 0,     8,  "#f472b6"),
-                ]
-                _da_cols = st.columns(len(_feat_defs))
-                for _ci, (_fk, _fic, _flbl, _fval_raw, _fmin, _fmax, _fcol) in enumerate(_feat_defs):
-                    _ref_mu    = _best_stats.get(_fk, {}).get("mu")
+                _feat_labels = {
+                    "mean":  ("평균 밝기", _mean_b,  0, 255,   "#60a5fa"),
+                    "std":   ("명암 대비", _std_b,   0, 128,   "#34d399"),
+                    "edge":  ("엣지 밀도", _edge_d*100, 0, 15, "#f59e0b"),
+                    "asp":   ("종횡비×100", _aspect*100, 50, 200, "#a78bfa"),
+                    "peaks": ("히스토그램 피크", _peaks_val, 0, 8, "#f472b6"),
+                }
+                _da_cols = st.columns(len(_feat_labels))
+                for _ci, (_fk, (_flbl, _fval, _fmin, _fmax, _fcol)) in enumerate(_feat_labels.items()):
+                    _ref_mu    = _best_stats.get(_fk, {}).get("mu", None)
                     _ref_sigma = _best_stats.get(_fk, {}).get("sigma", 1.0)
-                    _range     = max(_fmax - _fmin, 1e-6)
-                    _pct_q     = int(min(max((_fval_raw - _fmin) / _range * 100, 0), 100))
-                    _pct_ref   = int(min(max((_ref_mu - _fmin) / _range * 100, 0), 100)) if _ref_mu else 50
-                    _z         = abs(_fval_raw - _ref_mu) / (_ref_sigma + 1e-6) if _ref_mu else 0
-                    _zc        = "#4ade80" if _z<1 else ("#f59e0b" if _z<2 else "#f87171")
-                    _zl        = "✓ 정상" if _z<1 else ("△ 주의" if _z<2 else "✗ 이탈")
-                    _ref_str   = f"{_ref_mu:.2f}±{_ref_sigma:.2f}" if _ref_mu else "—"
-                    _fval_str  = f"{_fval_raw:.3f}" if _fk in ("edge","asp") else f"{_fval_raw:.1f}"
+                    _ref_stat_min = _best_stats.get(_fk, {}).get("min", _fmin)
+                    _ref_stat_max = _best_stats.get(_fk, {}).get("max", _fmax)
+                    # 실제 피처값 (edge는 ×100 했으니 mu도 ×100)
+                    _fval_raw = _fval / 100 if _fk in ("edge",) else (
+                                _fval / 100 if _fk == "asp" else _fval)
+                    if _fk == "asp":
+                        _fval_raw = _aspect
+                    elif _fk == "edge":
+                        _fval_raw = _edge_d
+                    elif _fk == "peaks":
+                        _fval_raw = _peaks_val
+
+                    # 백분율 (표시용)
+                    _range = max(_fmax - _fmin, 0.01)
+                    _pct_q   = min(max((_fval - _fmin) / _range * 100, 0), 100)
+                    _pct_ref = min(max((_ref_mu * (100 if _fk == "edge" else (100 if _fk == "asp" else 1)) - _fmin) / _range * 100, 0), 100) if _ref_mu else 50
+
+                    # 실제 표시 pct
+                    _pct_q2   = min(max((_fval_raw / (_fmax / (100 if _fk in ("edge","asp") else 1) or 1)) * 100, 0), 100) if _fk in ("edge","asp") else _pct_q
+                    _ref_pct2 = min(max((_ref_mu / (_fmax / (100 if _fk in ("edge","asp") else 1) or 1)) * 100, 0), 100) if (_ref_mu and _fk in ("edge","asp")) else _pct_ref
+
+                    # z-score 판정
+                    _z = abs(_fval_raw - _ref_mu) / (_ref_sigma + 1e-6) if _ref_mu is not None else 0
+                    _z_color = "#4ade80" if _z < 1.0 else ("#f59e0b" if _z < 2.0 else "#f87171")
+                    _z_label = "✓ 정상" if _z < 1.0 else ("△ 주의" if _z < 2.0 else "✗ 이탈")
 
                     _da_cols[_ci].markdown(f"""
-                    <div style="background:#1e293b;border-radius:12px;padding:12px 10px;text-align:center">
-                      <div style="font-size:18px;margin-bottom:4px">{_fic}</div>
-                      <div style="color:#64748b;font-size:7px;text-transform:uppercase;
+                    <div style="background:#1e293b;border-radius:10px;padding:10px 8px 8px;text-align:center">
+                      <div style="color:#64748b;font-size:8px;text-transform:uppercase;
                       letter-spacing:1px;margin-bottom:6px">{_flbl}</div>
-                      <div style="color:#f1f5f9;font-size:14px;font-weight:800;margin-bottom:2px">{_fval_str}</div>
-                      <div style="color:#475569;font-size:7px;margin-bottom:8px">참조 {_ref_str}</div>
-                      <div style="background:#0f172a;border-radius:4px;height:6px;overflow:hidden;margin-bottom:3px">
-                        <div style="background:{_fcol};width:{_pct_q}%;height:6px;border-radius:4px"></div>
+                      <div style="color:white;font-size:13px;font-weight:800;margin-bottom:2px">{_fval:.2f}</div>
+                      <div style="color:#475569;font-size:8px;margin-bottom:6px">
+                        참조: {_ref_mu:.2f}±{_ref_sigma:.2f}</div>
+                      <div style="background:#0f172a;border-radius:4px;height:6px;overflow:hidden;margin-bottom:4px">
+                        <div style="background:{_fcol};width:{int(_pct_q)}%;height:6px;border-radius:4px"></div>
                       </div>
-                      <div style="background:#0f172a;border-radius:4px;height:4px;overflow:hidden;margin-bottom:6px;opacity:0.5">
-                        <div style="background:#94a3b8;width:{_pct_ref}%;height:4px;border-radius:4px"></div>
-                      </div>
-                      <div style="color:{_zc};font-size:9px;font-weight:700;background:{_zc}18;
-                      border-radius:6px;padding:2px 0">{_zl}</div>
-                    </div>""", unsafe_allow_html=True)
+                      <div style="color:{_z_color};font-size:9px;font-weight:700">{_z_label}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
 
-                # Hu Moments + 뷰 분포
-                st.markdown("</div>", unsafe_allow_html=True)
-                st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
+                # ── Hu Moments 형상 유사도 수치 ──
+                st.markdown('<div style="margin-top:12px"></div>', unsafe_allow_html=True)
+                _hu_ref = _best_mdata.get("hu_mean")
+                if _hu_query and _hu_ref:
+                    _hu_dist_val = _hu_dist(_hu_query, _hu_ref)
+                    _hu_sim_pct  = max(0, min(100, (1 - _hu_dist_val / 15.0) * 100))
+                    _hu_color    = "#4ade80" if _hu_sim_pct > 70 else ("#f59e0b" if _hu_sim_pct > 40 else "#f87171")
+                    st.markdown(f"""
+                    <div style="background:#1e293b;border-radius:10px;padding:12px 14px;text-align:center">
+                      <div style="color:#64748b;font-size:8px;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">형상 유사도</div>
+                      <div style="color:{_hu_color};font-size:22px;font-weight:900">{_hu_sim_pct:.0f}%</div>
+                      <div style="color:#475569;font-size:9px">Hu Moments</div>
+                    </div>
+                    """, unsafe_allow_html=True)
 
-                _hu_col, _vc_col = st.columns([1, 2])
-                with _hu_col:
-                    if _hu_query and _hu_ref:
-                        _hu_dist_val = _hu_dist(_hu_query, _hu_ref)
-                        _hu_sim_pct  = max(0, min(100, (1 - _hu_dist_val / 15.0) * 100))
-                        _huc = "#4ade80" if _hu_sim_pct>70 else ("#f59e0b" if _hu_sim_pct>40 else "#f87171")
-                        st.markdown(f"""
-                        <div style="background:#1e293b;border-radius:14px;padding:16px;text-align:center">
-                          <div style="color:#64748b;font-size:8px;text-transform:uppercase;
-                          letter-spacing:1px;margin-bottom:8px">🔷 형상 유사도</div>
-                          <div style="color:{_huc};font-size:32px;font-weight:900;
-                          line-height:1">{_hu_sim_pct:.0f}%</div>
-                          <div style="color:#475569;font-size:9px;margin-top:4px">Hu Moments</div>
-                          <div style="background:#0f172a;border-radius:6px;height:8px;
-                          overflow:hidden;margin-top:10px">
-                            <div style="background:{_huc};width:{int(_hu_sim_pct)}%;height:8px;
-                            border-radius:6px;box-shadow:0 0 8px {_huc}88"></div>
-                          </div>
-                        </div>""", unsafe_allow_html=True)
-
-                with _vc_col:
-                    _vc = _best_mdata.get("view_counts", {})
-                    if _vc:
-                        _vc_total = sum(_vc.values())
-                        _vc_color_map = {
-                            "cross_section":"#a78bfa","top":"#60a5fa","bottom":"#34d399",
-                            "side":"#f59e0b","stack":"#f472b6","eol":"#fb923c",
-                            "full_label":"#38bdf8","msa":"#4ade80","unknown":"#475569",
-                        }
-                        _vc_bars = ""
-                        for _vt, _vn in sorted(_vc.items(), key=lambda x: -x[1]):
-                            _vp = _vn / _vc_total * 100
-                            _vc = _vc_color_map.get(_vt, "#475569")
-                            _vc_bars += f"""
-                            <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">
-                              <div style="color:{_vc};font-size:8px;font-weight:700;width:80px;
-                              flex-shrink:0">{_vt}</div>
-                              <div style="flex:1;background:#0f172a;border-radius:4px;height:8px;overflow:hidden">
-                                <div style="background:{_vc};width:{int(_vp)}%;height:8px;border-radius:4px"></div>
-                              </div>
-                              <div style="color:{_vc};font-size:8px;font-weight:700;width:32px;
-                              text-align:right">{_vp:.0f}%</div>
-                            </div>"""
-                        st.markdown(f"""
-                        <div style="background:#1e293b;border-radius:14px;padding:14px 16px">
-                          <div style="color:#64748b;font-size:8px;text-transform:uppercase;
-                          letter-spacing:1px;margin-bottom:10px">
-                            📁 {_best_mname} — 학습 뷰 분포 ({_vc_total}장)</div>
-                          {_vc_bars}
-                        </div>""", unsafe_allow_html=True)
+                # ── 매칭 장비 뷰 타입 분포 ──
+                _vc = _best_mdata.get("view_counts", {})
+                if _vc:
+                    _vc_total = sum(_vc.values())
+                    _vc_html = ""
+                    _vc_color_map = {
+                        "cross_section": "#a78bfa", "top": "#60a5fa", "bottom": "#34d399",
+                        "side": "#f59e0b", "stack": "#f472b6", "eol": "#fb923c",
+                        "full_label": "#38bdf8", "msa": "#4ade80", "unknown": "#475569",
+                    }
+                    for _vt, _vn in sorted(_vc.items(), key=lambda x: -x[1]):
+                        _vp = _vn / _vc_total * 100
+                        _vc_html += (f'<span style="background:{_vc_color_map.get(_vt,"#475569")}22;'
+                                     f'color:{_vc_color_map.get(_vt,"#94a3b8")};border:1px solid '
+                                     f'{_vc_color_map.get(_vt,"#475569")}44;border-radius:6px;'
+                                     f'padding:2px 7px;font-size:9px;font-weight:700;margin:2px">'
+                                     f'{_vt} {_vp:.0f}%</span>')
+                    st.markdown(f"""
+                    <div style="background:#1e293b;border-radius:10px;padding:10px 14px;margin-top:8px">
+                      <div style="color:#64748b;font-size:8px;text-transform:uppercase;
+                      letter-spacing:1px;margin-bottom:6px">📁 {_best_mname} — 학습 뷰 분포 ({_vc_total}장)</div>
+                      <div>{_vc_html}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
