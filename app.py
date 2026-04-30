@@ -3523,6 +3523,7 @@ with tab4:
         if st.session_state.get("_scan_fkey") != _fkey:
             st.session_state["_scan_fkey"] = _fkey
             st.session_state["scan_done"] = False
+            st.session_state["ref_selected_idx"] = 0
 
     if _scan_file is None:
         st.markdown("""
@@ -3666,6 +3667,7 @@ with tab4:
             st.session_state["scan_done"] = True
 
         # ── 스캔 결과 사전 계산 ──
+        _medals = ["🥇", "🥈", "🥉"]
         _top3_full = []
         _top3      = []
         _method    = ""
@@ -3695,8 +3697,11 @@ with tab4:
                 _top3 = _scores[:3]
                 _top3_full = [(m, s, "?", {}, 0, 0) for m, s in _top3]
                 _method = "휴리스틱"
-            # 참조 이미지 경로 조회 ─ 업로드 뷰타입에 맞는 이미지 선택
-            _ref_mname = _top3_full[0][0] if _top3_full else ""
+            # 참조 이미지 경로 조회 ─ 선택된 Top-3 인덱스 기준
+            _ref_sel_idx = int(st.session_state.get("ref_selected_idx", 0))
+            if _ref_sel_idx >= len(_top3_full):
+                _ref_sel_idx = 0
+            _ref_mname = _top3_full[_ref_sel_idx][0] if _top3_full else ""
             _upload_view = ("cross_section" if 0.65 <= _aspect <= 1.5
                             else ("side" if _aspect > 2.0 else "other"))
             if _ref_mname:
@@ -3789,7 +3794,8 @@ with tab4:
                 )
 
         with _sc_r:
-            _ref_lbl = f"📷 참조 — {_ref_mname[:30]}" if _ref_mname else "📷 참조 이미지"
+            _ref_sel_lbl = f"{_medals[_ref_sel_idx]} " if _top3_full and _ref_sel_idx < len(_medals) else ""
+            _ref_lbl = f"📷 참조 — {_ref_sel_lbl}{_ref_mname[:28]}" if _ref_mname else "📷 참조 이미지"
             st.markdown(f"""<div style="background:#0f172a;border-radius:16px;padding:12px 14px 8px">
               <div style="color:#64748b;font-size:9px;font-weight:700;letter-spacing:2px;
               text-transform:uppercase;margin-bottom:8px">{_ref_lbl}</div>""",
@@ -3897,9 +3903,20 @@ with tab4:
                     '<div style="background:#0f172a;border-radius:16px;padding:16px 18px">'
                     '<div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:14px">📊 유사 모델 순위 TOP-3</div>'
                     + _top3_html +
+                    '<div style="color:#475569;font-size:8px;text-align:center;margin-top:4px">👆 모델명 클릭 → 참조 이미지 변경</div>'
                     '</div>',
                     unsafe_allow_html=True
                 )
+                # ── 모델 선택 버튼 (클릭 시 참조 이미지 변경) ──
+                _sel_idx_now = int(st.session_state.get("ref_selected_idx", 0))
+                _btn_cols = st.columns(len(_top3))
+                for _bi, (_bm, _bs) in enumerate(_top3):
+                    with _btn_cols[_bi]:
+                        _is_sel = (_bi == _sel_idx_now)
+                        _btn_label = f"{'✅ ' if _is_sel else ''}{_medals[_bi]} {_bm[:18]}"
+                        if st.button(_btn_label, key=f"ref_sel_{_bi}", use_container_width=True):
+                            st.session_state["ref_selected_idx"] = _bi
+                            st.rerun()
 
         # ── Row 3: 인포그래픽 메트릭 카드 ──
         if st.session_state.get("scan_done"):
