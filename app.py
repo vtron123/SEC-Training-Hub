@@ -3443,19 +3443,45 @@ with tab4:
                 _top3 = _scores[:3]
                 _top3_full = [(m, s, "?", {}, 0, 0) for m, s in _top3]
                 _method = "휴리스틱"
-            # 참조 이미지 경로 조회 (pathlib으로 강건하게)
+            # 참조 이미지 경로 조회 ─ 업로드 뷰타입에 맞는 이미지 선택
             _ref_mname = _top3_full[0][0] if _top3_full else ""
+            _upload_view = ("cross_section" if 0.65 <= _aspect <= 1.5
+                            else ("side" if _aspect > 2.0 else "other"))
             if _ref_mname:
                 import pathlib as _pathlib
                 _script_dir    = _pathlib.Path(__file__).resolve().parent
                 _manifest_path = _script_dir / "ref_imgs" / "manifest.json"
                 if _manifest_path.exists():
                     try:
-                        _manifest  = json.loads(_manifest_path.read_text(encoding="utf-8"))
-                        _folder_id = _manifest.get(_ref_mname)
-                        if _folder_id:
+                        _manifest = json.loads(_manifest_path.read_text(encoding="utf-8"))
+                        _mentry   = _manifest.get(_ref_mname, {})
+                        # v3 manifest: {"folder_id":"04","views":{"cross_section":"0.jpg","side":"1.jpg"}}
+                        # v2 manifest fallback: 직접 폴더 id 문자열
+                        if isinstance(_mentry, dict):
+                            _folder_id = _mentry.get("folder_id")
+                            _view_files = _mentry.get("views", {})
+                            # 업로드 뷰타입에 맞는 파일 우선, fallback 순서
+                            _priority = [_upload_view, "cross_section", "side", "0"]
+                            _ref_file  = next(
+                                (v for k in _priority for k2, v in _view_files.items() if k2 == k),
+                                None
+                            )
+                            if _folder_id:
+                                if _ref_file:
+                                    _rp = _script_dir / "ref_imgs" / _folder_id / _ref_file
+                                    if _rp.exists():
+                                        _ref_imgs_found.append(str(_rp))
+                                # 두 번째 이미지도 추가 (다른 뷰)
+                                for _fname in ("0.jpg","1.jpg"):
+                                    _rp2 = _script_dir / "ref_imgs" / _folder_id / _fname
+                                    if _rp2.exists() and str(_rp2) not in _ref_imgs_found:
+                                        _ref_imgs_found.append(str(_rp2))
+                                        break
+                        else:
+                            # v2 fallback
+                            _folder_id = _mentry
                             for _ri in range(2):
-                                _rp = _script_dir / "ref_imgs" / _folder_id / f"{_ri}.jpg"
+                                _rp = _script_dir / "ref_imgs" / str(_folder_id) / f"{_ri}.jpg"
                                 if _rp.exists():
                                     _ref_imgs_found.append(str(_rp))
                     except Exception:
@@ -3741,3 +3767,111 @@ with tab4:
                             📁 {_best_mname} · 학습 뷰 분포 <span style="color:#475569">({_vc_total}장)</span></div>
                           {_vc_bars}
                         </div>""", unsafe_allow_html=True)
+
+                # ── 알고리즘 근거 설명 ──
+                st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
+
+                # 피처별 Z-score로 유사 근거 파악
+                _reason_parts = []
+                _strong_matches = []
+                _weak_matches   = []
+                for _fk2, _flbl2, _fval2 in [
+                    ("mean",  "평균 밝기",  _mean_b),
+                    ("std",   "명암 대비",  _std_b),
+                    ("edge",  "엣지 밀도",  _edge_d),
+                    ("asp",   "종횡비",     _aspect),
+                    ("peaks", "히스토 피크",_peaks_val),
+                ]:
+                    _mu2    = _best_stats.get(_fk2, {}).get("mu")
+                    _sig2   = _best_stats.get(_fk2, {}).get("sigma", 1.0)
+                    if _mu2 is None:
+                        continue
+                    _z2 = abs(_fval2 - _mu2) / (_sig2 + 1e-6)
+                    _fmt = ".3f" if _fk2 in ("edge","asp") else ".1f"
+                    _valstr = f"{_fval2:{_fmt}}"
+                    _refstr = f"{_mu2:{_fmt}}±{_sig2:{_fmt}}"
+                    if _z2 < 0.8:
+                        _strong_matches.append(f"<b>{_flbl2}</b> {_valstr} ≈ DB {_refstr}")
+                    elif _z2 < 1.5:
+                        _weak_matches.append(f"{_flbl2} {_valstr} (DB {_refstr}, Z={_z2:.1f}σ)")
+
+                _strong_html = "".join(
+                    f'<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:5px">'
+                    f'<span style="color:#4ade80;font-size:10px;flex-shrink:0">●</span>'
+                    f'<span style="color:#cbd5e1;font-size:10px">{s}</span></div>'
+                    for s in _strong_matches[:4]
+                ) or '<span style="color:#475569;font-size:10px">통계 근거 없음</span>'
+
+                _weak_html = "".join(
+                    f'<span style="color:#94a3b8;font-size:9px">△ {s}</span><br>'
+                    for s in _weak_matches[:3]
+                )
+
+                # 뷰타입 라벨
+                _upload_view_lbl = {"cross_section":"단면(원형)","side":"측면/파노라마","other":"기타"}.get(_upload_view,"?")
+                _ref_view_top    = max(_vc_dict.items(), key=lambda x: x[1])[0] if _vc_dict else "?"
+                _ref_view_lbl    = {"cross_section":"단면","top":"상단","bottom":"하단","side":"측면","unknown":"미분류"}.get(_ref_view_top, _ref_view_top)
+
+                # 알고리즘 설명 티어별 점수 (top3_full: mname, score, cell_type, mdata, hu_contrib, stat_contrib)
+                _t1_contrib = _top3_full[0][4] if len(_top3_full[0]) > 4 else None
+                _t2_contrib = _top3_full[0][5] if len(_top3_full[0]) > 5 else None
+
+                st.markdown(f"""
+                <div style="background:#0f172a;border-radius:16px;padding:16px 20px">
+                  <div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;
+                  text-transform:uppercase;margin-bottom:12px">🧠 매칭 근거 · WHY THIS MACHINE?</div>
+
+                  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px">
+
+                    <div style="background:#1e293b;border-radius:12px;padding:12px">
+                      <div style="color:#64748b;font-size:8px;text-transform:uppercase;
+                      letter-spacing:1px;margin-bottom:8px">🔬 매칭 알고리즘</div>
+                      <div style="color:#a78bfa;font-size:11px;font-weight:700;margin-bottom:4px">2-Tier Matching</div>
+                      <div style="color:#64748b;font-size:9px;line-height:1.6">
+                        <b style="color:#94a3b8">Tier-1</b> · Hu Moments 유클리드 거리<br>
+                        →&nbsp;형상 벡터 Top-10 후보 추출<br>
+                        <b style="color:#94a3b8">Tier-2</b> · 60% 형상 + 40% 통계<br>
+                        →&nbsp;최종 유사도 {_score_pct:.1f}% 산출<br>
+                        DB: <b style="color:#e2e8f0">{_SCAN_DB.get('total_samples',0)}장</b> ·
+                        장비 <b style="color:#e2e8f0">{len(_SCAN_DB.get('machines',{}))}종</b>
+                      </div>
+                    </div>
+
+                    <div style="background:#1e293b;border-radius:12px;padding:12px">
+                      <div style="color:#64748b;font-size:8px;text-transform:uppercase;
+                      letter-spacing:1px;margin-bottom:8px">✅ 강한 일치 근거</div>
+                      {_strong_html}
+                      {"<div style='color:#94a3b8;font-size:9px;margin-top:4px'>" + _weak_html + "</div>" if _weak_html else ""}
+                    </div>
+
+                    <div style="background:#1e293b;border-radius:12px;padding:12px">
+                      <div style="color:#64748b;font-size:8px;text-transform:uppercase;
+                      letter-spacing:1px;margin-bottom:8px">📐 뷰 타입 분석</div>
+                      <div style="color:#94a3b8;font-size:9px;line-height:1.8">
+                        <span style="color:#64748b">업로드 판정</span><br>
+                        <span style="color:#60a5fa;font-weight:700;font-size:11px">{_upload_view_lbl}</span>
+                        <span style="color:#475569;font-size:9px"> (종횡비 {_aspect:.2f})</span><br>
+                        <span style="color:#64748b">DB 주요 뷰</span><br>
+                        <span style="color:#a78bfa;font-weight:700;font-size:11px">{_ref_view_lbl}</span>
+                        <span style="color:#475569;font-size:9px"> ({_vc_dict.get(_ref_view_top,0)}장)</span><br>
+                        <span style="color:#64748b">참조이미지</span>
+                        <span style="color:#4ade80;font-size:9px"> {_upload_view_lbl} 우선 선택</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style="background:#1e293b;border-radius:10px;padding:10px 14px;
+                  border-left:3px solid #a78bfa">
+                    <div style="color:#a78bfa;font-size:8px;font-weight:700;
+                    text-transform:uppercase;margin-bottom:6px">📋 결론 요약</div>
+                    <div style="color:#94a3b8;font-size:10px;line-height:1.7">
+                      업로드 이미지는 <span style="color:#60a5fa;font-weight:600">{_upload_view_lbl}</span>
+                      뷰로 판정됩니다 (종횡비 {_aspect:.2f}).
+                      Hu Moments 형상 벡터 분석과 통계 피처 비교 결과,
+                      <span style="color:#a78bfa;font-weight:700">{_top3[0][0]}</span>와
+                      <span style="color:#4ade80;font-weight:700">{_score_pct:.1f}%</span> 유사도로
+                      1위 매칭되었습니다.
+                      {f"강하게 일치하는 피처: {', '.join([s.split('>')[1].split('<')[0] for s in _strong_matches[:2]])}" if len(_strong_matches) >= 1 else ""}
+                    </div>
+                  </div>
+                </div>""", unsafe_allow_html=True)
