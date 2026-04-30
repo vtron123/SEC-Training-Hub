@@ -3429,21 +3429,21 @@ with tab4:
                 _top3 = _scores[:3]
                 _top3_full = [(m, s, "?", {}, 0, 0) for m, s in _top3]
                 _method = "휴리스틱"
-            # 참조 이미지 경로 조회
+            # 참조 이미지 경로 조회 (pathlib으로 강건하게)
             _ref_mname = _top3_full[0][0] if _top3_full else ""
             if _ref_mname:
-                _base_dir      = os.path.dirname(os.path.abspath(__file__))
-                _manifest_path = os.path.join(_base_dir, "ref_imgs", "manifest.json")
-                if os.path.exists(_manifest_path):
+                import pathlib as _pathlib
+                _script_dir    = _pathlib.Path(__file__).resolve().parent
+                _manifest_path = _script_dir / "ref_imgs" / "manifest.json"
+                if _manifest_path.exists():
                     try:
-                        with open(_manifest_path, encoding="utf-8") as _mf:
-                            _manifest = json.load(_mf)
+                        _manifest  = json.loads(_manifest_path.read_text(encoding="utf-8"))
                         _folder_id = _manifest.get(_ref_mname)
                         if _folder_id:
                             for _ri in range(2):
-                                _rp = os.path.join(_base_dir, "ref_imgs", _folder_id, f"{_ri}.jpg")
-                                if os.path.exists(_rp):
-                                    _ref_imgs_found.append(_rp)
+                                _rp = _script_dir / "ref_imgs" / _folder_id / f"{_ri}.jpg"
+                                if _rp.exists():
+                                    _ref_imgs_found.append(str(_rp))
                     except Exception:
                         pass
 
@@ -3494,36 +3494,35 @@ with tab4:
             </div>
             """, unsafe_allow_html=True)
 
-        # ── 오른쪽: 참조 이미지 ──
+        # ── 오른쪽: 참조 이미지 (업로드 이미지와 동일 구조) ──
         with _sc_r:
+            _ref_title = f"📷 참조 이미지 — {_ref_mname}" if _ref_mname else "📷 참조 이미지"
+            st.markdown(f"""
+            <div style="background:#0f172a;border-radius:14px;padding:10px 12px 6px;margin-bottom:8px">
+              <div style="color:#64748b;font-size:9px;font-weight:700;letter-spacing:2px;
+              text-transform:uppercase;margin-bottom:6px">{_ref_title}</div>
+            """, unsafe_allow_html=True)
             if not st.session_state.get("scan_done"):
                 st.markdown("""
-                <div style="background:#1e293b;border-radius:14px;height:100%;min-height:300px;
-                display:flex;align-items:center;justify-content:center;padding:48px 24px;text-align:center">
-                  <div>
-                    <div style="font-size:36px;margin-bottom:10px">🎯</div>
-                    <div style="font-size:12px;font-weight:600;color:#94a3b8;margin-bottom:4px">
-                      참조 이미지</div>
-                    <div style="font-size:11px;color:#475569">스캔 후 매칭 이미지가 표시됩니다</div>
-                  </div>
-                </div>
-                """, unsafe_allow_html=True)
+                <div style="display:flex;align-items:center;justify-content:center;
+                min-height:300px;color:#334155;font-size:12px;text-align:center">
+                  🎯<br>스캔 후 표시
+                </div>""", unsafe_allow_html=True)
+            elif _ref_imgs_found:
+                # 첫 번째 이미지를 전체 너비로 (업로드 이미지와 평행)
+                try:
+                    st.image(Image.open(_ref_imgs_found[0]), use_container_width=True)
+                except Exception as _e:
+                    st.markdown(f'<div style="color:#f87171;font-size:10px;padding:8px">오류: {_e}</div>',
+                                unsafe_allow_html=True)
             else:
                 st.markdown(f"""
-                <div style="background:#0f172a;border-radius:14px;padding:10px 12px 6px;margin-bottom:8px">
-                  <div style="color:#64748b;font-size:9px;font-weight:700;letter-spacing:2px;
-                  text-transform:uppercase;margin-bottom:6px">📷 참조 이미지 — {_ref_mname}</div>
-                </div>
-                """, unsafe_allow_html=True)
-                if _ref_imgs_found:
-                    for _rp in _ref_imgs_found:
-                        try:
-                            st.image(Image.open(_rp), use_container_width=True)
-                        except Exception:
-                            pass
-                else:
-                    st.markdown('<div style="color:#475569;font-size:11px;padding:12px">이미지를 불러올 수 없습니다</div>',
-                                unsafe_allow_html=True)
+                <div style="display:flex;align-items:center;justify-content:center;
+                min-height:300px;color:#475569;font-size:10px;text-align:center">
+                  참조 이미지 없음<br>
+                  <span style="font-size:8px">{_ref_mname}</span>
+                </div>""", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
 
         # ── Row 2: 유사도 결과 (이미지 아래) ──
         if st.session_state.get("scan_done") and _top3_full:
