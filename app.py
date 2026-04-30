@@ -3763,11 +3763,8 @@ with tab4:
                 _uimg_disp.save(_ubuf, format="JPEG", quality=85)
                 _ub64 = _b64u.b64encode(_ubuf.getvalue()).decode()
                 st.markdown(
-                    '<div style="border-radius:8px;overflow:hidden;height:280px;'
-                    'display:flex;align-items:center;justify-content:center">'
                     f'<img src="data:image/jpeg;base64,{_ub64}" '
-                    'style="width:100%;height:280px;object-fit:cover;display:block;border-radius:8px">'
-                    '</div>',
+                    'style="width:100%;height:auto;display:block;border-radius:8px">',
                     unsafe_allow_html=True
                 )
             except Exception:
@@ -3812,22 +3809,12 @@ with tab4:
                         _rs = _rmax / max(_rw, _rh)
                         _rimg = _rimg.resize((int(_rw * _rs), int(_rh * _rs)), Image.LANCZOS)
                         _rw, _rh = _rimg.size
-                    # 파노라마 이미지(asp>4)는 중앙 크롭 — 좌우 끝보다 내부 구조 중심이 의미 있음
-                    _rasp = _rw / (_rh + 1e-6)
-                    if _rasp > 4.0:
-                        _crop_w = int(_rh * 4.0)
-                        _cx = (_rw - _crop_w) // 2
-                        _rimg = _rimg.crop((_cx, 0, _cx + _crop_w, _rh))
-                        _rw, _rh = _rimg.size
                     _rbuf = _io2.BytesIO()
                     _rimg.save(_rbuf, format="JPEG", quality=85)
                     _rb64 = _b64mod.b64encode(_rbuf.getvalue()).decode()
                     st.markdown(
-                        '<div style="border-radius:8px;overflow:hidden;height:280px;'
-                        'display:flex;align-items:center;justify-content:center">'
                         f'<img src="data:image/jpeg;base64,{_rb64}" '
-                        'style="width:100%;height:280px;object-fit:cover;display:block;border-radius:8px">'
-                        '</div>',
+                        'style="width:100%;height:auto;display:block;border-radius:8px">',
                         unsafe_allow_html=True
                     )
                 except Exception as _e:
