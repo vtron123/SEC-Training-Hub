@@ -3396,7 +3396,7 @@ with tab4:
         _arr_u8 = _np.clip(_arr, 0, 255).astype(_np.uint8)
         _hu_query = _compute_hu(_arr_u8)
 
-        # ── 강제 색상 CSS (화이트 테마/다크 테마 모두 대응) ──
+        # ── 강제 색상 CSS (화이트 테마/다크 테마 모두 대응 + 파일 업로더 화이트) ──
         st.markdown("""
         <style>
         .scan-card { color:#1e293b !important; }
@@ -3407,6 +3407,37 @@ with tab4:
                       letter-spacing:1.5px; text-transform:uppercase; }
         .scan-val   { color:#0f172a !important; font-size:14px; font-weight:800; }
         .scan-sub   { color:#94a3b8 !important; font-size:9px; }
+
+        /* 파일 업로더 강제 화이트 + 검은 텍스트 */
+        [data-testid="stFileUploader"] section {
+            background: #ffffff !important;
+            border: 2px dashed #cbd5e1 !important;
+            border-radius: 12px !important;
+        }
+        [data-testid="stFileUploader"] section * {
+            color: #374151 !important;
+        }
+        [data-testid="stFileUploader"] section svg {
+            fill: #374151 !important;
+        }
+        [data-testid="stFileUploader"] section button {
+            background: #f1f5f9 !important;
+            color: #374151 !important;
+            border: 1px solid #cbd5e1 !important;
+            border-radius: 8px !important;
+        }
+        [data-testid="stFileUploader"] > label,
+        [data-testid="stFileUploader"] > label * {
+            color: #374151 !important;
+        }
+        /* 업로드된 파일명 행 */
+        [data-testid="stFileUploader"] [data-testid="stFileUploaderFile"] {
+            background: #f8fafc !important;
+            border-radius: 8px !important;
+        }
+        [data-testid="stFileUploader"] [data-testid="stFileUploaderFile"] * {
+            color: #374151 !important;
+        }
         </style>
         """, unsafe_allow_html=True)
 
@@ -3501,6 +3532,23 @@ with tab4:
               unsafe_allow_html=True)
             st.image(_img_rgb, use_column_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
+
+            # ── DCM 헤더 정보 표시 ──
+            if _dicom_meta:
+                _dcm_rows = "".join(
+                    f'<tr>'
+                    f'<td style="color:#64748b;font-size:9px;padding:4px 10px 4px 0;white-space:nowrap">{_dk}</td>'
+                    f'<td style="color:#e2e8f0;font-size:9px;padding:4px 0;font-weight:600">{_dv}</td>'
+                    f'</tr>'
+                    for _dk, _dv in _dicom_meta.items()
+                )
+                st.markdown(
+                    '<div style="background:#0f172a;border-radius:12px;padding:12px 16px;margin-top:8px">'
+                    '<div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px">🏷️ DICOM HEADER</div>'
+                    f'<table style="width:100%;border-collapse:collapse">{_dcm_rows}</table>'
+                    '</div>',
+                    unsafe_allow_html=True
+                )
 
         with _sc_r:
             _ref_lbl = f"📷 참조 — {_ref_mname[:30]}" if _ref_mname else "📷 참조 이미지"
@@ -3787,90 +3835,163 @@ with tab4:
                     elif _z2 < 1.5:
                         _weak_matches.append(f"{_flbl2} {_valstr} (DB {_refstr}, Z={_z2:.1f}σ)")
 
-                _strong_html = "".join(
-                    f'<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:5px">'
-                    f'<span style="color:#4ade80;font-size:10px;flex-shrink:0">●</span>'
-                    f'<span style="color:#cbd5e1;font-size:10px">{s}</span></div>'
-                    for s in _strong_matches[:4]
-                ) or '<span style="color:#475569;font-size:10px">통계 근거 없음</span>'
-
-                _weak_html = "".join(
-                    f'<span style="color:#94a3b8;font-size:9px">△ {s}</span><br>'
-                    for s in _weak_matches[:3]
-                )
+                # ── 피처별 상세 분석 데이터 준비 ──
+                _feat_detail = []   # (label, icon, desc, upload_val, ref_mu, ref_sig, z, unit)
+                _feat_meta = [
+                    ("mean",  "☀️",  "평균 밝기",   "이미지 전체 밝기 수준. X-RAY에서 밀도가 낮을수록 밝음",    _mean_b,    "gray",  ".1f", ""),
+                    ("std",   "🌗",  "명암 대비",   "밝고 어두운 영역의 차이. 내부 구조가 복잡할수록 높음",      _std_b,     "gray",  ".1f", ""),
+                    ("edge",  "🔍",  "엣지 밀도",   "경계선 밀도. 원통형 단면은 동심원 패턴으로 높게 나타남",   _edge_d,    "gray",  ".4f", ""),
+                    ("asp",   "📐",  "종횡비 (W/H)","가로÷세로. 1.0에 가까울수록 원형(단면), 클수록 파노라마", _aspect,    "gray",  ".3f", ""),
+                    ("peaks", "📊",  "히스토 피크", "명암 분포 봉우리 수. 내부 레이어 구조를 반영",            _peaks_val, "gray",  ".1f", "개"),
+                ]
+                for _fk2, _fic2, _flbl2, _fdesc2, _fval2, _, _fmt2, _unit2 in _feat_meta:
+                    _mu2  = _best_stats.get(_fk2, {}).get("mu")
+                    _sig2 = _best_stats.get(_fk2, {}).get("sigma", 1.0)
+                    if _mu2 is None:
+                        continue
+                    _z2  = abs(_fval2 - _mu2) / (_sig2 + 1e-6)
+                    _zc2 = "#4ade80" if _z2 < 0.8 else ("#f59e0b" if _z2 < 1.5 else "#f87171")
+                    _zl2 = ("매우 유사" if _z2 < 0.8 else ("유사" if _z2 < 1.5 else "차이 있음"))
+                    _feat_detail.append((_flbl2, _fic2, _fdesc2, _fval2, _mu2, _sig2, _z2, _zc2, _zl2, _fmt2, _unit2))
+                    if _z2 < 0.8:
+                        _strong_matches.append(f"<b>{_flbl2}</b> {_fval2:{_fmt2}}{_unit2} ≈ DB {_mu2:{_fmt2}}±{_sig2:{_fmt2}}{_unit2}")
+                    elif _z2 < 1.5:
+                        _weak_matches.append(f"{_flbl2} {_fval2:{_fmt2}}{_unit2} (DB {_mu2:{_fmt2}}±{_sig2:{_fmt2}}{_unit2}, {_z2:.1f}σ 차이)")
 
                 # 뷰타입 라벨
                 _upload_view_lbl = {"cross_section":"단면(원형)","side":"측면/파노라마","other":"기타"}.get(_upload_view,"?")
                 _ref_view_top    = max(_vc_dict.items(), key=lambda x: x[1])[0] if _vc_dict else "?"
                 _ref_view_lbl    = {"cross_section":"단면","top":"상단","bottom":"하단","side":"측면","unknown":"미분류"}.get(_ref_view_top, _ref_view_top)
 
-                # 알고리즘 설명 티어별 점수 (top3_full: mname, score, cell_type, mdata, hu_contrib, stat_contrib)
-                _t1_contrib = _top3_full[0][4] if len(_top3_full[0]) > 4 else None
-                _t2_contrib = _top3_full[0][5] if len(_top3_full[0]) > 5 else None
+                # ── 피처 비교 테이블 행 ──
+                _feat_rows = ""
+                for _flbl2, _fic2, _fdesc2, _fval2, _mu2, _sig2, _z2, _zc2, _zl2, _fmt2, _unit2 in _feat_detail:
+                    _bar_pct = max(0, min(100, int((1 - min(_z2, 3) / 3) * 100)))
+                    _feat_rows += (
+                        f'<tr style="border-bottom:1px solid #1e293b">'
+                        f'<td style="padding:8px 10px 8px 0;width:20px;font-size:14px">{_fic2}</td>'
+                        f'<td style="padding:8px 12px 8px 0;min-width:90px">'
+                        f'<div style="color:#e2e8f0;font-size:10px;font-weight:700">{_flbl2}</div>'
+                        f'<div style="color:#475569;font-size:8px;line-height:1.4">{_fdesc2}</div>'
+                        f'</td>'
+                        f'<td style="padding:8px 12px;text-align:center;white-space:nowrap">'
+                        f'<div style="color:#60a5fa;font-size:13px;font-weight:800">{_fval2:{_fmt2}}{_unit2}</div>'
+                        f'<div style="color:#475569;font-size:8px">업로드</div>'
+                        f'</td>'
+                        f'<td style="padding:8px 12px;text-align:center;white-space:nowrap">'
+                        f'<div style="color:#a78bfa;font-size:13px;font-weight:800">{_mu2:{_fmt2}}{_unit2}</div>'
+                        f'<div style="color:#475569;font-size:8px">±{_sig2:{_fmt2}} (DB평균)</div>'
+                        f'</td>'
+                        f'<td style="padding:8px 0;min-width:120px">'
+                        f'<div style="display:flex;align-items:center;gap:6px">'
+                        f'<div style="flex:1;background:#0f172a;border-radius:4px;height:6px;overflow:hidden">'
+                        f'<div style="background:{_zc2};width:{_bar_pct}%;height:6px;border-radius:4px"></div>'
+                        f'</div>'
+                        f'<span style="color:{_zc2};font-size:9px;font-weight:700;white-space:nowrap">{_zl2}</span>'
+                        f'</div>'
+                        f'<div style="color:#475569;font-size:8px;margin-top:2px">{_z2:.2f}σ 차이</div>'
+                        f'</td>'
+                        f'</tr>'
+                    )
 
-                # 알고리즘 카드 1: 매칭 알고리즘
-                _algo_card = (
-                    '<div style="background:#1e293b;border-radius:12px;padding:12px">'
-                    '<div style="color:#64748b;font-size:8px;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">🔬 매칭 알고리즘</div>'
-                    '<div style="color:#a78bfa;font-size:11px;font-weight:700;margin-bottom:6px">2-Tier Matching</div>'
-                    '<div style="color:#64748b;font-size:9px;line-height:1.7">'
-                    f'<b style="color:#94a3b8">Tier-1</b> · Hu Moments 유클리드 거리<br>'
-                    '→ 형상 벡터 Top-10 후보 추출<br>'
-                    f'<b style="color:#94a3b8">Tier-2</b> · 60% 형상 + 40% 통계<br>'
-                    f'→ 최종 유사도 <b style="color:#4ade80">{_score_pct:.1f}%</b> 산출<br>'
-                    f'DB: <b style="color:#e2e8f0">{_SCAN_DB.get("total_samples",0)}장</b> · '
-                    f'장비 <b style="color:#e2e8f0">{len(_SCAN_DB.get("machines",{}))}종</b>'
-                    '</div></div>'
+                # ── 스코어 신뢰도 설명 ──
+                _conf_lv  = "높음 🟢" if _score_pct >= 80 else ("보통 🟡" if _score_pct >= 55 else "낮음 🔴")
+                _conf_msg = (
+                    f"{_score_pct:.0f}%는 DB 전체 {_SCAN_DB.get('total_samples',0)}장 중 가장 유사한 수치입니다. "
+                    "이 점수는 형상(Hu Moments) 60%와 통계 피처(밝기·대비·엣지·종횡비·피크) 40%를 가중 합산한 결과입니다."
+                    if _score_pct >= 80 else
+                    f"일부 피처에서 차이가 있어 {_score_pct:.0f}%로 산출되었습니다. "
+                    "종횡비나 밝기 차이가 있으면 동일 장비라도 점수가 낮아질 수 있습니다."
                 )
-                # 알고리즘 카드 2: 강한 일치 근거
-                _weak_blk = (f'<div style="color:#94a3b8;font-size:9px;margin-top:4px">{_weak_html}</div>' if _weak_html else "")
-                _match_card = (
-                    '<div style="background:#1e293b;border-radius:12px;padding:12px">'
-                    '<div style="color:#64748b;font-size:8px;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">✅ 강한 일치 근거</div>'
-                    + _strong_html + _weak_blk +
-                    '</div>'
+
+                # ── 뷰타입 설명 ──
+                _view_msg = (
+                    f"종횡비 {_aspect:.2f}로 <b style='color:#60a5fa'>{_upload_view_lbl}</b>으로 판정됩니다. "
+                    + ("원형에 가까운 단면 이미지로, 원통형 셀의 단면 촬영과 일치합니다." if _upload_view == "cross_section"
+                       else "가로로 긴 파노라마 이미지로, 셀 측면 또는 전체 라인 촬영과 일치합니다." if _upload_view == "side"
+                       else "중간 종횡비 이미지입니다.")
                 )
-                # 알고리즘 카드 3: 뷰 타입 분석
-                _view_card = (
-                    '<div style="background:#1e293b;border-radius:12px;padding:12px">'
-                    '<div style="color:#64748b;font-size:8px;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">📐 뷰 타입 분석</div>'
-                    '<div style="color:#94a3b8;font-size:9px;line-height:1.9">'
-                    '<span style="color:#64748b">업로드 판정</span><br>'
-                    f'<span style="color:#60a5fa;font-weight:700;font-size:11px">{_upload_view_lbl}</span>'
-                    f'<span style="color:#475569;font-size:9px"> (종횡비 {_aspect:.2f})</span><br>'
-                    '<span style="color:#64748b">DB 주요 뷰</span><br>'
-                    f'<span style="color:#a78bfa;font-weight:700;font-size:11px">{_ref_view_lbl}</span>'
-                    f'<span style="color:#475569;font-size:9px"> ({_vc_dict.get(_ref_view_top,0)}장)</span><br>'
-                    '<span style="color:#64748b">참조이미지</span> '
-                    f'<span style="color:#4ade80;font-size:9px">{_upload_view_lbl} 우선 선택</span>'
-                    '</div></div>'
-                )
-                # 결론 요약
-                _strong_feat_names = []
-                for _sm in _strong_matches[:2]:
-                    try: _strong_feat_names.append(_sm.split(">")[1].split("<")[0])
-                    except: pass
-                _conclusion_extra = f'강하게 일치하는 피처: {", ".join(_strong_feat_names)}' if _strong_feat_names else ""
-                _conclusion_card = (
-                    '<div style="background:#1e293b;border-radius:10px;padding:10px 14px;border-left:3px solid #a78bfa">'
-                    '<div style="color:#a78bfa;font-size:8px;font-weight:700;text-transform:uppercase;margin-bottom:6px">📋 결론 요약</div>'
-                    '<div style="color:#94a3b8;font-size:10px;line-height:1.7">'
-                    f'업로드 이미지는 <span style="color:#60a5fa;font-weight:600">{_upload_view_lbl}</span> 뷰로 판정됩니다 (종횡비 {_aspect:.2f}). '
-                    'Hu Moments 형상 벡터 분석과 통계 피처 비교 결과, '
-                    f'<span style="color:#a78bfa;font-weight:700">{_top3[0][0]}</span>와 '
-                    f'<span style="color:#4ade80;font-weight:700">{_score_pct:.1f}%</span> 유사도로 1위 매칭되었습니다. '
-                    f'{_conclusion_extra}'
-                    '</div></div>'
-                )
-                _grid = (
-                    '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px">'
-                    + _algo_card + _match_card + _view_card +
-                    '</div>'
-                )
+
+                # ── 결론 문장 생성 ──
+                _match_reason = []
+                for _flbl2, _, _, _fval2, _mu2, _sig2, _z2, _zc2, _zl2, _fmt2, _unit2 in _feat_detail:
+                    if _z2 < 0.8:
+                        _match_reason.append(f"<span style='color:#4ade80;font-weight:700'>{_flbl2}({_fval2:{_fmt2}}≈{_mu2:{_fmt2}})</span>")
+                _reason_str = "·".join(_match_reason[:3]) if _match_reason else "통계적으로 근접한 값"
+
                 st.markdown(
-                    '<div style="background:#0f172a;border-radius:16px;padding:16px 20px">'
-                    '<div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:12px">🧠 매칭 근거 · WHY THIS MACHINE?</div>'
-                    + _grid + _conclusion_card +
-                    '</div>',
+                    '<div style="background:#0f172a;border-radius:16px;padding:18px 20px">'
+
+                    # 헤더
+                    '<div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:4px">🧠 매칭 근거 분석 — WHY THIS MACHINE?</div>'
+                    f'<div style="color:#94a3b8;font-size:10px;margin-bottom:16px">이 이미지가 <span style="color:#a78bfa;font-weight:700">{_top3[0][0]}</span>와 <span style="color:#4ade80;font-weight:700">{_score_pct:.1f}%</span> 유사하다고 판단한 근거</div>'
+
+                    # 상단 3분할: 알고리즘 방식 | 신뢰도 | 뷰타입
+                    '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px">'
+
+                    # 카드1: 분석 방식
+                    '<div style="background:#1e293b;border-radius:12px;padding:14px">'
+                    '<div style="color:#64748b;font-size:8px;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">🔬 분석 방식</div>'
+                    '<div style="color:#a78bfa;font-size:12px;font-weight:800;margin-bottom:8px">2단계 매칭 알고리즘</div>'
+                    '<div style="color:#475569;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">1단계 · 형상 스크리닝</div>'
+                    '<div style="color:#94a3b8;font-size:9px;line-height:1.6;margin-bottom:8px">'
+                    'Hu Moments(7개 형상 불변량)를 이용해 이미지의 외형·윤곽 패턴을 수치화합니다. '
+                    f'전체 DB {_SCAN_DB.get("total_samples",0)}장 중 형상이 유사한 <b style="color:#e2e8f0">Top-10 후보</b>를 추려냅니다.'
+                    '</div>'
+                    '<div style="color:#475569;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">2단계 · 통계 정밀 매칭</div>'
+                    '<div style="color:#94a3b8;font-size:9px;line-height:1.6">'
+                    '후보군을 대상으로 5가지 통계 피처를 비교합니다. '
+                    '<b style="color:#e2e8f0">형상 60% + 통계 40%</b>로 가중 합산해 최종 유사도를 산출합니다.'
+                    '</div>'
+                    '</div>'
+
+                    # 카드2: 신뢰도
+                    f'<div style="background:#1e293b;border-radius:12px;padding:14px">'
+                    '<div style="color:#64748b;font-size:8px;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">📊 결과 신뢰도</div>'
+                    f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">'
+                    f'<div style="background:{_score_col}22;border:3px solid {_score_col};border-radius:50%;width:52px;height:52px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:900;color:{_score_col};flex-shrink:0">{_score_pct:.0f}%</div>'
+                    f'<div><div style="color:#e2e8f0;font-size:11px;font-weight:700">{_conf_lv}</div>'
+                    f'<div style="color:#475569;font-size:8px">신뢰도 수준</div></div>'
+                    f'</div>'
+                    f'<div style="color:#94a3b8;font-size:9px;line-height:1.6">{_conf_msg}</div>'
+                    '</div>'
+
+                    # 카드3: 뷰타입
+                    f'<div style="background:#1e293b;border-radius:12px;padding:14px">'
+                    '<div style="color:#64748b;font-size:8px;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">📐 이미지 뷰 판정</div>'
+                    f'<div style="color:#60a5fa;font-size:14px;font-weight:800;margin-bottom:6px">{_upload_view_lbl}</div>'
+                    f'<div style="color:#94a3b8;font-size:9px;line-height:1.6;margin-bottom:10px">{_view_msg}</div>'
+                    '<div style="color:#475569;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">참조 이미지 선택</div>'
+                    f'<div style="color:#94a3b8;font-size:9px">DB 내 <span style="color:#a78bfa;font-weight:600">{_ref_view_lbl}</span> 뷰 이미지 중 업로드와 같은 뷰({_upload_view_lbl})를 우선 표시합니다.</div>'
+                    '</div>'
+                    '</div>'  # grid 끝
+
+                    # 피처 상세 비교 테이블
+                    '<div style="background:#1e293b;border-radius:12px;padding:14px;margin-bottom:14px">'
+                    '<div style="color:#64748b;font-size:8px;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">📋 피처별 상세 비교 — 업로드 이미지 vs DB 평균</div>'
+                    '<table style="width:100%;border-collapse:collapse">'
+                    f'<thead><tr>'
+                    f'<th style="color:#475569;font-size:8px;text-align:left;padding:0 10px 8px 0;border-bottom:1px solid #334155" colspan="2">피처</th>'
+                    f'<th style="color:#60a5fa;font-size:8px;text-align:center;padding:0 12px 8px;border-bottom:1px solid #334155">내 이미지</th>'
+                    f'<th style="color:#a78bfa;font-size:8px;text-align:center;padding:0 12px 8px;border-bottom:1px solid #334155">DB 평균</th>'
+                    f'<th style="color:#475569;font-size:8px;text-align:left;padding:0 0 8px;border-bottom:1px solid #334155">유사도</th>'
+                    f'</tr></thead>'
+                    f'<tbody>{_feat_rows}</tbody>'
+                    '</table>'
+                    '</div>'
+
+                    # 결론
+                    '<div style="background:#1e293b;border-radius:10px;padding:12px 16px;border-left:4px solid #a78bfa">'
+                    '<div style="color:#a78bfa;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">💡 왜 이 장비가 1위인가?</div>'
+                    f'<div style="color:#cbd5e1;font-size:10px;line-height:1.8">'
+                    f'업로드 이미지는 <span style="color:#60a5fa;font-weight:600">{_upload_view_lbl}</span>(종횡비 {_aspect:.2f})로 분석되었습니다. '
+                    f'DB {_SCAN_DB.get("total_samples",0)}장을 대상으로 Hu Moments 형상 분석 → Top-10 후보 추출 → 통계 피처 정밀 비교를 거쳐, '
+                    f'<span style="color:#a78bfa;font-weight:700">{_top3[0][0]}</span>이 {_reason_str} 등에서 가장 근접한 값을 보였습니다. '
+                    f'2위 <span style="color:#6366f1;font-weight:600">{_top3[1][0] if len(_top3)>1 else "—"}</span>({_top3[1][1]*100:.1f}%)과 비교했을 때도 '
+                    f'<span style="color:#4ade80;font-weight:700">{(_top3[0][1]-_top3[1][1])*100:.1f}%p</span> 앞서 명확히 1위입니다.'
+                    '</div>'
+                    '</div>'
+
+                    '</div>',  # 전체 컨테이너 끝
                     unsafe_allow_html=True
                 )
