@@ -3667,24 +3667,27 @@ with tab4:
                         _hq_v   = _hu_query[_hi]
                         _hr_v   = _hu_ref[_hi]
                         _diff   = _diffs_all[_hi]
-                        _scale  = max(abs(_hr_v), 0.5)
+                        # 스케일: 두 값 중 절대값이 큰 쪽 기준 (참조값이 작아도 0% 클램핑 방지)
+                        _scale  = max(abs(_hq_v), abs(_hr_v), 1.0)
                         _match  = max(0, min(100, int((1.0 - _diff / _scale) * 100)))
                         _hc     = "#4ade80" if _match >= 75 else ("#f59e0b" if _match >= 45 else "#f87171")
+                        _bar_w  = max(3, _match)  # 0%여도 최소 3px은 보이게
                         _hu_bars_html += f"""
                         <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
                           <div style="color:#64748b;font-size:8px;width:18px;flex-shrink:0;
                                font-weight:700">M{_hi+1}</div>
                           <div style="flex:1;background:#0f172a;border-radius:4px;
                                height:8px;overflow:hidden;position:relative">
-                            <div style="background:{_hc};width:{_match}%;height:8px;
+                            <div style="background:{_hc};width:{_bar_w}%;height:8px;
                                  border-radius:4px;transition:width 0.4s;
                                  box-shadow:0 0 6px {_hc}66"></div>
                           </div>
                           <div style="color:{_hc};font-size:9px;width:34px;flex-shrink:0;
                                text-align:right;font-weight:700">{_match}%</div>
-                          <div style="color:#334155;font-size:7px;width:36px;flex-shrink:0;
-                               text-align:right;line-height:1.2">
-                            {_hq_v:+.2f}<br>{_hr_v:+.2f}</div>
+                          <div style="color:#475569;font-size:7px;width:38px;flex-shrink:0;
+                               text-align:right;line-height:1.4">
+                            <span style="color:#60a5fa">{_hq_v:+.1f}</span><br>
+                            <span style="color:#94a3b8">{_hr_v:+.1f}</span></div>
                         </div>"""
                     _hu_cols[1].markdown(f"""
                     <div style="background:#1e293b;border-radius:10px;padding:10px 14px">
