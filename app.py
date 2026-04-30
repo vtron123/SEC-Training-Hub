@@ -3656,48 +3656,58 @@ with tab4:
                       <div style="color:#475569;font-size:9px">Hu Moments</div>
                     </div>
                     """, unsafe_allow_html=True)
-                    # M1~M6 매칭률 바 (단일 바 방식 — 두 막대 병렬 제거)
+                    # M1~M6 비교 바 — 동일 스케일로 업로드/참조 나란히 표시
                     _n_hu = min(6, len(_hu_query), len(_hu_ref))
-                    _diffs_all = [abs(_hu_query[i] - _hu_ref[i]) for i in range(_n_hu)]
-                    # 스케일: 각 모멘트의 참조값 절대값 기준 → 상대 오차 %
-                    # match_pct = max(0, 1 - |diff| / max(|ref|, 0.5)) * 100
-                    # → ref 기준 오차가 0이면 100%, 오차 == ref크기면 0%
+                    # 전체 12개 절대값 중 최대값 → 공통 스케일 (두 막대 같은 자로 잼)
+                    _all_abs = [abs(_hu_query[i]) for i in range(_n_hu)] + \
+                               [abs(_hu_ref[i])   for i in range(_n_hu)]
+                    _gmax = max(_all_abs) if _all_abs else 1.0
                     _hu_bars_html = ""
                     for _hi in range(_n_hu):
-                        _hq_v   = _hu_query[_hi]
-                        _hr_v   = _hu_ref[_hi]
-                        _diff   = _diffs_all[_hi]
-                        # 스케일: 두 값 중 절대값이 큰 쪽 기준 (참조값이 작아도 0% 클램핑 방지)
-                        _scale  = max(abs(_hq_v), abs(_hr_v), 1.0)
-                        _match  = max(0, min(100, int((1.0 - _diff / _scale) * 100)))
-                        _hc     = "#4ade80" if _match >= 75 else ("#f59e0b" if _match >= 45 else "#f87171")
-                        _bar_w  = max(3, _match)  # 0%여도 최소 3px은 보이게
+                        _hq_v = _hu_query[_hi]
+                        _hr_v = _hu_ref[_hi]
+                        _diff = abs(_hq_v - _hr_v)
+                        # 두 막대 너비: 공통 스케일 기준
+                        _hq_w = min(100, int(abs(_hq_v) / _gmax * 100))
+                        _hr_w = min(100, int(abs(_hr_v) / _gmax * 100))
+                        # 부호 불일치 여부
+                        _sign_ok = (_hq_v >= 0) == (_hr_v >= 0)
+                        # 색상: diff가 전체 스케일 대비 얼마나 큰지
+                        _rel = _diff / _gmax
+                        _hc  = "#4ade80" if _rel < 0.15 else ("#f59e0b" if _rel < 0.40 else "#f87171")
+                        _sign_badge = "" if _sign_ok else \
+                            '<span style="color:#f87171;font-size:7px;margin-left:2px">±</span>'
                         _hu_bars_html += f"""
-                        <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
-                          <div style="color:#64748b;font-size:8px;width:18px;flex-shrink:0;
-                               font-weight:700">M{_hi+1}</div>
-                          <div style="flex:1;background:#0f172a;border-radius:4px;
-                               height:8px;overflow:hidden;position:relative">
-                            <div style="background:{_hc};width:{_bar_w}%;height:8px;
-                                 border-radius:4px;transition:width 0.4s;
-                                 box-shadow:0 0 6px {_hc}66"></div>
+                        <div style="margin-bottom:7px">
+                          <div style="display:flex;align-items:center;gap:5px;margin-bottom:2px">
+                            <div style="color:#64748b;font-size:8px;width:18px;font-weight:700;flex-shrink:0">M{_hi+1}</div>
+                            <div style="flex:1;background:#0f172a;border-radius:3px;height:6px;overflow:hidden">
+                              <div style="background:#60a5fa;width:{_hq_w}%;height:6px;border-radius:3px"></div>
+                            </div>
+                            <div style="color:#60a5fa;font-size:7px;width:38px;text-align:right;flex-shrink:0">{_hq_v:+.1f}</div>
                           </div>
-                          <div style="color:{_hc};font-size:9px;width:34px;flex-shrink:0;
-                               text-align:right;font-weight:700">{_match}%</div>
-                          <div style="color:#475569;font-size:7px;width:38px;flex-shrink:0;
-                               text-align:right;line-height:1.4">
-                            <span style="color:#60a5fa">{_hq_v:+.1f}</span><br>
-                            <span style="color:#94a3b8">{_hr_v:+.1f}</span></div>
+                          <div style="display:flex;align-items:center;gap:5px">
+                            <div style="width:18px;flex-shrink:0;display:flex;justify-content:flex-end">
+                              <div style="color:{_hc};font-size:6px">{_sign_badge}</div>
+                            </div>
+                            <div style="flex:1;background:#0f172a;border-radius:3px;height:6px;overflow:hidden">
+                              <div style="background:#94a3b8;width:{_hr_w}%;height:6px;border-radius:3px"></div>
+                            </div>
+                            <div style="color:#94a3b8;font-size:7px;width:38px;text-align:right;flex-shrink:0">{_hr_v:+.1f}</div>
+                          </div>
                         </div>"""
                     _hu_cols[1].markdown(f"""
                     <div style="background:#1e293b;border-radius:10px;padding:10px 14px">
                       <div style="color:#64748b;font-size:8px;text-transform:uppercase;
                       letter-spacing:1px;margin-bottom:8px">
-                        형상 모멘트 일치율 (M1~M6)
-                        <span style="color:#334155;font-size:7px;margin-left:4px">
-                          위=업로드 아래=참조</span>
+                        형상 벡터 비교 (M1~M6) &nbsp;
+                        <span style="color:#60a5fa">■</span> 업로드 &nbsp;
+                        <span style="color:#94a3b8">■</span> 참조
                       </div>
                       {_hu_bars_html}
+                      <div style="color:#334155;font-size:7px;margin-top:4px">
+                        막대 길이가 같으면 일치 &nbsp;·&nbsp; ± = 부호 반전(완전 불일치)
+                      </div>
                     </div>
                     """, unsafe_allow_html=True)
                 else:
