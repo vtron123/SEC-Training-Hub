@@ -3639,82 +3639,18 @@ with tab4:
                     </div>
                     """, unsafe_allow_html=True)
 
-                # ── Hu Moments 형상 유사도 시각화 ──
+                # ── Hu Moments 형상 유사도 수치 ──
                 st.markdown('<div style="margin-top:12px"></div>', unsafe_allow_html=True)
                 _hu_ref = _best_mdata.get("hu_mean")
                 if _hu_query and _hu_ref:
                     _hu_dist_val = _hu_dist(_hu_query, _hu_ref)
                     _hu_sim_pct  = max(0, min(100, (1 - _hu_dist_val / 15.0) * 100))
                     _hu_color    = "#4ade80" if _hu_sim_pct > 70 else ("#f59e0b" if _hu_sim_pct > 40 else "#f87171")
-                    _hu_bar_w    = int(_hu_sim_pct)
-                    _hu_cols = st.columns([1, 2])
-                    _hu_cols[0].markdown(f"""
-                    <div style="background:#1e293b;border-radius:10px;padding:12px 14px;text-align:center;height:90px;
-                    display:flex;flex-direction:column;justify-content:center">
+                    st.markdown(f"""
+                    <div style="background:#1e293b;border-radius:10px;padding:12px 14px;text-align:center">
                       <div style="color:#64748b;font-size:8px;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">형상 유사도</div>
                       <div style="color:{_hu_color};font-size:22px;font-weight:900">{_hu_sim_pct:.0f}%</div>
                       <div style="color:#475569;font-size:9px">Hu Moments</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    # M1~M6 비교 바 — 동일 스케일로 업로드/참조 나란히 표시
-                    _n_hu = min(6, len(_hu_query), len(_hu_ref))
-                    # 전체 12개 절대값 중 최대값 → 공통 스케일 (두 막대 같은 자로 잼)
-                    _all_abs = [abs(_hu_query[i]) for i in range(_n_hu)] + \
-                               [abs(_hu_ref[i])   for i in range(_n_hu)]
-                    _gmax = max(_all_abs) if _all_abs else 1.0
-                    _hu_bars_html = ""
-                    for _hi in range(_n_hu):
-                        _hq_v = _hu_query[_hi]
-                        _hr_v = _hu_ref[_hi]
-                        _diff = abs(_hq_v - _hr_v)
-                        # 두 막대 너비: 공통 스케일 기준
-                        _hq_w = min(100, int(abs(_hq_v) / _gmax * 100))
-                        _hr_w = min(100, int(abs(_hr_v) / _gmax * 100))
-                        # 부호 불일치 여부
-                        _sign_ok = (_hq_v >= 0) == (_hr_v >= 0)
-                        # 색상: diff가 전체 스케일 대비 얼마나 큰지
-                        _rel = _diff / _gmax
-                        _hc  = "#4ade80" if _rel < 0.15 else ("#f59e0b" if _rel < 0.40 else "#f87171")
-                        _sign_badge = "" if _sign_ok else \
-                            '<span style="color:#f87171;font-size:7px;margin-left:2px">±</span>'
-                        _hu_bars_html += f"""
-                        <div style="margin-bottom:7px">
-                          <div style="display:flex;align-items:center;gap:5px;margin-bottom:2px">
-                            <div style="color:#64748b;font-size:8px;width:18px;font-weight:700;flex-shrink:0">M{_hi+1}</div>
-                            <div style="flex:1;background:#0f172a;border-radius:3px;height:6px;overflow:hidden">
-                              <div style="background:#60a5fa;width:{_hq_w}%;height:6px;border-radius:3px"></div>
-                            </div>
-                            <div style="color:#60a5fa;font-size:7px;width:38px;text-align:right;flex-shrink:0">{_hq_v:+.1f}</div>
-                          </div>
-                          <div style="display:flex;align-items:center;gap:5px">
-                            <div style="width:18px;flex-shrink:0;display:flex;justify-content:flex-end">
-                              <div style="color:{_hc};font-size:6px">{_sign_badge}</div>
-                            </div>
-                            <div style="flex:1;background:#0f172a;border-radius:3px;height:6px;overflow:hidden">
-                              <div style="background:#94a3b8;width:{_hr_w}%;height:6px;border-radius:3px"></div>
-                            </div>
-                            <div style="color:#94a3b8;font-size:7px;width:38px;text-align:right;flex-shrink:0">{_hr_v:+.1f}</div>
-                          </div>
-                        </div>"""
-                    _hu_cols[1].markdown(f"""
-                    <div style="background:#1e293b;border-radius:10px;padding:10px 14px">
-                      <div style="color:#64748b;font-size:8px;text-transform:uppercase;
-                      letter-spacing:1px;margin-bottom:8px">
-                        형상 벡터 비교 (M1~M6) &nbsp;
-                        <span style="color:#60a5fa">■</span> 업로드 &nbsp;
-                        <span style="color:#94a3b8">■</span> 참조
-                      </div>
-                      {_hu_bars_html}
-                      <div style="color:#334155;font-size:7px;margin-top:4px">
-                        막대 길이가 같으면 일치 &nbsp;·&nbsp; ± = 부호 반전(완전 불일치)
-                      </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                else:
-                    st.markdown(f"""
-                    <div style="background:#1e293b;border-radius:10px;padding:10px 14px;
-                    color:#475569;font-size:10px;text-align:center">
-                      {'🔘 Hu Moments 계산 중 윤곽선을 찾지 못했습니다 (배경이 복잡하거나 저대비 이미지)' if not _hu_query else '🔘 참조 형상 데이터 없음'}
                     </div>
                     """, unsafe_allow_html=True)
 
