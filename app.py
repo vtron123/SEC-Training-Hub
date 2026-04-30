@@ -3751,7 +3751,29 @@ with tab4:
               <div style="color:#64748b;font-size:9px;font-weight:700;letter-spacing:2px;
               text-transform:uppercase;margin-bottom:8px">📤 UPLOADED IMAGE</div>""",
               unsafe_allow_html=True)
-            st.image(_img_rgb, use_column_width=True)
+            try:
+                import io as _io2u, base64 as _b64u
+                _uimg_disp = _img_rgb.copy()
+                _uw, _uh = _uimg_disp.size
+                _umax = 1600
+                if max(_uw, _uh) > _umax:
+                    _us = _umax / max(_uw, _uh)
+                    _uimg_disp = _uimg_disp.resize((int(_uw * _us), int(_uh * _us)), Image.LANCZOS)
+                _ubuf = _io2u.BytesIO()
+                _uimg_disp.save(_ubuf, format="JPEG", quality=85)
+                _ub64 = _b64u.b64encode(_ubuf.getvalue()).decode()
+                st.markdown(
+                    '<div style="background:#000;border-radius:8px;overflow:hidden;'
+                    'min-height:200px;display:flex;align-items:center;justify-content:center;'
+                    'padding:4px">'
+                    f'<img src="data:image/jpeg;base64,{_ub64}" '
+                    'style="max-width:100%;max-height:320px;object-fit:contain;'
+                    'display:block;border-radius:4px">'
+                    '</div>',
+                    unsafe_allow_html=True
+                )
+            except Exception:
+                st.image(_img_rgb, use_column_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
             # ── DCM 헤더 정보 표시 ──
@@ -3783,14 +3805,28 @@ with tab4:
                 unsafe_allow_html=True)
             elif _ref_imgs_found:
                 try:
-                    # 자연 비율 그대로 표시 (crop 없이) — 컬럼 너비에 맞게 축소만
+                    import io as _io2, base64 as _b64mod
                     _rimg = Image.open(_ref_imgs_found[0]).convert("RGB")
                     _rw, _rh = _rimg.size
-                    # 최대 너비 900px로 리사이즈 (고해상도 원본이어도 브라우저 표시 속도 보장)
-                    _max_w = 900
-                    if _rw > _max_w:
-                        _rimg = _rimg.resize((_max_w, int(_rh * _max_w / _rw)), Image.LANCZOS)
-                    st.image(_rimg, use_column_width=True)
+                    # 최대 1600×1600px 로 제한 (파일 크기)
+                    _rmax = 1600
+                    if max(_rw, _rh) > _rmax:
+                        _rs = _rmax / max(_rw, _rh)
+                        _rimg = _rimg.resize((int(_rw * _rs), int(_rh * _rs)), Image.LANCZOS)
+                    _rbuf = _io2.BytesIO()
+                    _rimg.save(_rbuf, format="JPEG", quality=85)
+                    _rb64 = _b64mod.b64encode(_rbuf.getvalue()).decode()
+                    # object-fit:contain 으로 어떤 비율이든 컨테이너 내 전체 표시
+                    st.markdown(
+                        '<div style="background:#000;border-radius:8px;overflow:hidden;'
+                        'min-height:200px;display:flex;align-items:center;justify-content:center;'
+                        'padding:4px">'
+                        f'<img src="data:image/jpeg;base64,{_rb64}" '
+                        'style="max-width:100%;max-height:320px;object-fit:contain;'
+                        'display:block;border-radius:4px">'
+                        '</div>',
+                        unsafe_allow_html=True
+                    )
                 except Exception as _e:
                     st.markdown(f'<div style="color:#f87171;padding:8px;font-size:10px">오류: {_e}</div>',
                                 unsafe_allow_html=True)
