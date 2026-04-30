@@ -3656,48 +3656,45 @@ with tab4:
                       <div style="color:#475569;font-size:9px">Hu Moments</div>
                     </div>
                     """, unsafe_allow_html=True)
-                    # M1~M6만 사용 (M7은 노이즈에 민감해 제외)
+                    # M1~M6 매칭률 바 (단일 바 방식 — 두 막대 병렬 제거)
                     _n_hu = min(6, len(_hu_query), len(_hu_ref))
-                    # 각 모멘트별로 독립 정규화: 두 값 중 큰 쪽을 100%로
                     _diffs_all = [abs(_hu_query[i] - _hu_ref[i]) for i in range(_n_hu)]
-                    _diff_max  = max(_diffs_all) if _diffs_all else 1.0
-                    _hu_pairs_html = ""
+                    # 스케일: 각 모멘트의 참조값 절대값 기준 → 상대 오차 %
+                    # match_pct = max(0, 1 - |diff| / max(|ref|, 0.5)) * 100
+                    # → ref 기준 오차가 0이면 100%, 오차 == ref크기면 0%
+                    _hu_bars_html = ""
                     for _hi in range(_n_hu):
-                        _hq_v    = _hu_query[_hi]
-                        _hr_v    = _hu_ref[_hi]
-                        # 이 모멘트 내에서만 두 값 중 큰 쪽 기준 정규화
-                        _local_max = max(abs(_hq_v), abs(_hr_v), 1e-9)
-                        _hq_pct  = min(int(abs(_hq_v) / _local_max * 100), 100)
-                        _hr_pct  = min(int(abs(_hr_v) / _local_max * 100), 100)
-                        _diff    = _diffs_all[_hi]
-                        _ratio   = _diff / (_diff_max + 1e-9)
-                        _hc      = "#4ade80" if _ratio < 0.25 else ("#f59e0b" if _ratio < 0.55 else "#f87171")
-                        _hu_pairs_html += f"""
-                        <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px">
-                          <div style="color:#64748b;font-size:8px;width:20px;flex-shrink:0">M{_hi+1}</div>
-                          <div style="flex:1;background:#0f172a;border-radius:3px;height:7px;overflow:hidden">
-                            <div style="background:#60a5fa;width:{_hq_pct}%;height:7px;border-radius:3px;
-                            transition:width 0.4s"></div>
+                        _hq_v   = _hu_query[_hi]
+                        _hr_v   = _hu_ref[_hi]
+                        _diff   = _diffs_all[_hi]
+                        _scale  = max(abs(_hr_v), 0.5)
+                        _match  = max(0, min(100, int((1.0 - _diff / _scale) * 100)))
+                        _hc     = "#4ade80" if _match >= 75 else ("#f59e0b" if _match >= 45 else "#f87171")
+                        _hu_bars_html += f"""
+                        <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+                          <div style="color:#64748b;font-size:8px;width:18px;flex-shrink:0;
+                               font-weight:700">M{_hi+1}</div>
+                          <div style="flex:1;background:#0f172a;border-radius:4px;
+                               height:8px;overflow:hidden;position:relative">
+                            <div style="background:{_hc};width:{_match}%;height:8px;
+                                 border-radius:4px;transition:width 0.4s;
+                                 box-shadow:0 0 6px {_hc}66"></div>
                           </div>
-                          <div style="flex:1;background:#0f172a;border-radius:3px;height:7px;overflow:hidden">
-                            <div style="background:#94a3b8;width:{_hr_pct}%;height:7px;border-radius:3px;
-                            transition:width 0.4s"></div>
-                          </div>
-                          <div style="color:{_hc};font-size:8px;width:30px;flex-shrink:0;text-align:right">
-                            {_diff:.2f}</div>
+                          <div style="color:{_hc};font-size:9px;width:34px;flex-shrink:0;
+                               text-align:right;font-weight:700">{_match}%</div>
+                          <div style="color:#334155;font-size:7px;width:36px;flex-shrink:0;
+                               text-align:right;line-height:1.2">
+                            {_hq_v:+.2f}<br>{_hr_v:+.2f}</div>
                         </div>"""
                     _hu_cols[1].markdown(f"""
                     <div style="background:#1e293b;border-radius:10px;padding:10px 14px">
                       <div style="color:#64748b;font-size:8px;text-transform:uppercase;
                       letter-spacing:1px;margin-bottom:8px">
-                        형상 벡터 비교 (M1~M6) &nbsp;
-                        <span style="color:#60a5fa">■</span> 업로드 &nbsp;
-                        <span style="color:#94a3b8">■</span> {_best_mname[:18]}
+                        형상 모멘트 일치율 (M1~M6)
+                        <span style="color:#334155;font-size:7px;margin-left:4px">
+                          위=업로드 아래=참조</span>
                       </div>
-                      {_hu_pairs_html}
-                      <div style="color:#334155;font-size:8px;margin-top:6px;text-align:right">
-                        각 행: 두 값 중 큰 쪽 = 100%
-                      </div>
+                      {_hu_bars_html}
                     </div>
                     """, unsafe_allow_html=True)
                 else:
