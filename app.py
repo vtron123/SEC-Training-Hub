@@ -3656,25 +3656,22 @@ with tab4:
                       <div style="color:#475569;font-size:9px">Hu Moments</div>
                     </div>
                     """, unsafe_allow_html=True)
-                    # 7개 Hu moment 비교 막대
-                    # 전체 값 중 최댓값으로 정규화 → 항상 하나 이상의 막대가 크게 보임
-                    _n_hu = min(7, len(_hu_query), len(_hu_ref))
-                    _hu_all_abs = [abs(_hu_query[i]) for i in range(_n_hu)] + \
-                                  [abs(_hu_ref[i])   for i in range(_n_hu)]
-                    _hu_scale = max(_hu_all_abs) if _hu_all_abs else 1.0
-                    # diff 기준: 전체 diff의 최댓값으로 색상 임계값 동적 설정
+                    # M1~M6만 사용 (M7은 노이즈에 민감해 제외)
+                    _n_hu = min(6, len(_hu_query), len(_hu_ref))
+                    # 각 모멘트별로 독립 정규화: 두 값 중 큰 쪽을 100%로
                     _diffs_all = [abs(_hu_query[i] - _hu_ref[i]) for i in range(_n_hu)]
                     _diff_max  = max(_diffs_all) if _diffs_all else 1.0
                     _hu_pairs_html = ""
                     for _hi in range(_n_hu):
-                        _hq_v   = _hu_query[_hi]
-                        _hr_v   = _hu_ref[_hi]
-                        _hq_pct = min(int(abs(_hq_v) / _hu_scale * 100), 100)
-                        _hr_pct = min(int(abs(_hr_v) / _hu_scale * 100), 100)
-                        _diff   = _diffs_all[_hi]
-                        # 색상: diff가 전체 최대의 30% 미만이면 녹색, 60% 미만이면 노랑, 이상이면 빨강
-                        _ratio  = _diff / (_diff_max + 1e-9)
-                        _hc     = "#4ade80" if _ratio < 0.30 else ("#f59e0b" if _ratio < 0.60 else "#f87171")
+                        _hq_v    = _hu_query[_hi]
+                        _hr_v    = _hu_ref[_hi]
+                        # 이 모멘트 내에서만 두 값 중 큰 쪽 기준 정규화
+                        _local_max = max(abs(_hq_v), abs(_hr_v), 1e-9)
+                        _hq_pct  = min(int(abs(_hq_v) / _local_max * 100), 100)
+                        _hr_pct  = min(int(abs(_hr_v) / _local_max * 100), 100)
+                        _diff    = _diffs_all[_hi]
+                        _ratio   = _diff / (_diff_max + 1e-9)
+                        _hc      = "#4ade80" if _ratio < 0.25 else ("#f59e0b" if _ratio < 0.55 else "#f87171")
                         _hu_pairs_html += f"""
                         <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px">
                           <div style="color:#64748b;font-size:8px;width:20px;flex-shrink:0">M{_hi+1}</div>
@@ -3693,13 +3690,13 @@ with tab4:
                     <div style="background:#1e293b;border-radius:10px;padding:10px 14px">
                       <div style="color:#64748b;font-size:8px;text-transform:uppercase;
                       letter-spacing:1px;margin-bottom:8px">
-                        Hu Moment 벡터 비교 &nbsp;
+                        형상 벡터 비교 (M1~M6) &nbsp;
                         <span style="color:#60a5fa">■</span> 업로드 &nbsp;
                         <span style="color:#94a3b8">■</span> {_best_mname[:18]}
                       </div>
                       {_hu_pairs_html}
                       <div style="color:#334155;font-size:8px;margin-top:6px;text-align:right">
-                        스케일 기준: max={_hu_scale:.2f}
+                        각 행: 두 값 중 큰 쪽 = 100%
                       </div>
                     </div>
                     """, unsafe_allow_html=True)
