@@ -3732,11 +3732,22 @@ with tab4:
                 _ubuf = _io2u.BytesIO()
                 _uimg_disp.save(_ubuf, format="JPEG", quality=85)
                 _ub64 = _b64u.b64encode(_ubuf.getvalue()).decode()
-                st.markdown(
-                    f'<img src="data:image/jpeg;base64,{_ub64}" '
-                    'style="width:100%;height:auto;display:block;border-radius:8px">',
-                    unsafe_allow_html=True
-                )
+                _uasp = _uimg_disp.size[0] / (_uimg_disp.size[1] + 1e-6)
+                if _uasp > 5.0:
+                    # 파노라마: 고정 높이 220px + 가로 스크롤
+                    st.markdown(
+                        '<div style="overflow-x:auto;overflow-y:hidden;border-radius:8px;background:#111">'
+                        f'<img src="data:image/jpeg;base64,{_ub64}" '
+                        'style="height:220px;width:auto;max-width:none;display:block;border-radius:8px">'
+                        '</div>',
+                        unsafe_allow_html=True
+                    )
+                else:
+                    st.markdown(
+                        f'<img src="data:image/jpeg;base64,{_ub64}" '
+                        'style="width:100%;height:auto;display:block;border-radius:8px">',
+                        unsafe_allow_html=True
+                    )
             except Exception:
                 st.image(_img_rgb, use_column_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
@@ -3783,11 +3794,22 @@ with tab4:
                     _rbuf = _io2.BytesIO()
                     _rimg.save(_rbuf, format="JPEG", quality=85)
                     _rb64 = _b64mod.b64encode(_rbuf.getvalue()).decode()
-                    st.markdown(
-                        f'<img src="data:image/jpeg;base64,{_rb64}" '
-                        'style="width:100%;height:auto;display:block;border-radius:8px">',
-                        unsafe_allow_html=True
-                    )
+                    _rasp = _rw / (_rh + 1e-6)
+                    if _rasp > 5.0:
+                        # 파노라마: 고정 높이 220px + 가로 스크롤로 전체 이미지 확인 가능
+                        st.markdown(
+                            '<div style="overflow-x:auto;overflow-y:hidden;border-radius:8px;background:#111">'
+                            f'<img src="data:image/jpeg;base64,{_rb64}" '
+                            'style="height:220px;width:auto;max-width:none;display:block;border-radius:8px">'
+                            '</div>',
+                            unsafe_allow_html=True
+                        )
+                    else:
+                        st.markdown(
+                            f'<img src="data:image/jpeg;base64,{_rb64}" '
+                            'style="width:100%;height:auto;display:block;border-radius:8px">',
+                            unsafe_allow_html=True
+                        )
                 except Exception as _e:
                     st.markdown(f'<div style="color:#f87171;padding:8px;font-size:10px">오류: {_e}</div>',
                                 unsafe_allow_html=True)
