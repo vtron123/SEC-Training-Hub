@@ -722,7 +722,7 @@ PC_SLOTS = {f"PC-{i:02d}": "" for i in range(1, 13)}  # PC-01 ~ PC-12
 # ──────────────────────────────────────────────
 # 구글 시트 연결
 # ──────────────────────────────────────────────
-@st.cache_resource(ttl=300)
+@st.cache_resource(ttl=600)
 def get_sheet_client():
     scope = [
         "https://spreadsheets.google.com/feeds",
@@ -756,6 +756,24 @@ def get_pc_sheet():
         return client.open(SHEET_NAME).get_worksheet(1)
     except:
         return None
+
+@st.cache_resource(show_spinner=False)
+def _load_scan_db_global():
+    """scan_db.json 을 앱 시작 시 1회만 로드 (cache_resource = 역직렬화 없음)"""
+    _db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scan_db.json")
+    if not os.path.exists(_db_path):
+        return None
+    with open(_db_path, encoding="utf-8") as _f:
+        return json.load(_f)
+
+@st.cache_resource(show_spinner=False)
+def _load_manifest_global():
+    """ref_imgs/manifest.json 1회 로드"""
+    _mp = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ref_imgs", "manifest.json")
+    if not os.path.exists(_mp):
+        return {}
+    with open(_mp, encoding="utf-8") as _f:
+        return json.load(_f)
 
 @st.cache_data(ttl=120)
 def load_all_data():
@@ -3297,16 +3315,8 @@ with tab4:
     except ImportError:
         _pydicom_ok = False
 
-    # ── scan_db.json 로드 (캐시) ──
-    @st.cache_data(show_spinner=False)
-    def _load_scan_db():
-        _db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scan_db.json")
-        if not os.path.exists(_db_path):
-            return None
-        with open(_db_path, encoding="utf-8") as _f:
-            return _json.load(_f)
-
-    _SCAN_DB = _load_scan_db()
+    # ── scan_db.json 로드 (모듈 최상단 캐시 사용) ──
+    _SCAN_DB = _load_scan_db_global()
 
     # ── cv2 지연 임포트 (Hu Moments용) ──
     try:
@@ -3618,50 +3628,6 @@ with tab4:
         _elec_query = _extract_elec_features_query(_elec_q_arr)
 
         # ── 강제 색상 CSS (화이트 테마/다크 테마 모두 대응 + 파일 업로더 화이트) ──
-        st.markdown("""
-        <style>
-        .scan-card { color:#1e293b !important; }
-        .scan-card * { color:inherit; }
-        .scan-dark { color:#f1f5f9 !important; }
-        .scan-dark * { color:inherit; }
-        .scan-label { color:#64748b !important; font-size:9px; font-weight:700;
-                      letter-spacing:1.5px; text-transform:uppercase; }
-        .scan-val   { color:#0f172a !important; font-size:14px; font-weight:800; }
-        .scan-sub   { color:#94a3b8 !important; font-size:9px; }
-
-        /* 파일 업로더 강제 화이트 + 검은 텍스트 */
-        [data-testid="stFileUploader"] section {
-            background: #ffffff !important;
-            border: 2px dashed #cbd5e1 !important;
-            border-radius: 12px !important;
-        }
-        [data-testid="stFileUploader"] section * {
-            color: #374151 !important;
-        }
-        [data-testid="stFileUploader"] section svg {
-            fill: #374151 !important;
-        }
-        [data-testid="stFileUploader"] section button {
-            background: #f1f5f9 !important;
-            color: #374151 !important;
-            border: 1px solid #cbd5e1 !important;
-            border-radius: 8px !important;
-        }
-        [data-testid="stFileUploader"] > label,
-        [data-testid="stFileUploader"] > label * {
-            color: #374151 !important;
-        }
-        /* 업로드된 파일명 행 */
-        [data-testid="stFileUploader"] [data-testid="stFileUploaderFile"] {
-            background: #f8fafc !important;
-            border-radius: 8px !important;
-        }
-        [data-testid="stFileUploader"] [data-testid="stFileUploaderFile"] * {
-            color: #374151 !important;
-        }
-        </style>
-        """, unsafe_allow_html=True)
-
         # ── 스캔 버튼 ──
         if st.button("🔍  스캔 시작", type="primary", use_container_width=True, key="scan_btn"):
             st.session_state["scan_done"] = True
@@ -3706,12 +3672,11 @@ with tab4:
                             else ("side" if _aspect > 2.0 else "other"))
             if _ref_mname:
                 import pathlib as _pathlib
-                _script_dir    = _pathlib.Path(__file__).resolve().parent
-                _manifest_path = _script_dir / "ref_imgs" / "manifest.json"
-                if _manifest_path.exists():
+                _script_dir = _pathlib.Path(__file__).resolve().parent
+                _manifest   = _load_manifest_global()
+                if _manifest:
                     try:
-                        _manifest = json.loads(_manifest_path.read_text(encoding="utf-8"))
-                        _mentry   = _manifest.get(_ref_mname, {})
+                        _mentry = _manifest.get(_ref_mname, {})
                         # v3 manifest: {"folder_id":"04","views":{"cross_section":"0.jpg","side":"1.jpg"}}
                         # v2 manifest fallback: 직접 폴더 id 문자열
                         if isinstance(_mentry, dict):
