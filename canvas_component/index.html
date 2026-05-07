@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<script src="https://cdn.jsdelivr.net/npm/fabric@5.3.1/dist/fabric.min.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #000; font-family: -apple-system, BlinkMacSystemFont, sans-serif; overflow: hidden; }
+#bar {
+  background: #1e293b;
+  border-bottom: 1px solid #334155;
+  padding: 5px 8px;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-wrap: wrap;
+  height: 42px;
+}
+.lbl { color: #64748b; font-size: 10px; margin-right: 1px; white-space: nowrap; }
+.sep { width: 1px; height: 20px; background: #475569; margin: 0 3px; flex-shrink: 0; }
+.btn {
+  padding: 3px 9px;
+  border: 1px solid #475569;
+  border-radius: 5px;
+  background: #334155;
+  color: #cbd5e1;
+  cursor: pointer;
+  font-size: 11px;
+  white-space: nowrap;
+  transition: background 0.12s;
+  flex-shrink: 0;
+}
+.btn:hover { background: #3f4f6a; }
+.btn.on { background: #4f46e5; border-color: #818cf8; color: #fff; font-weight: 600; }
+.btn.r.on { background: #dc2626; border-color: #f87171; }
+.btn.b.on { background: #2563eb; border-color: #60a5fa; }
+#canvas-wrap { line-height: 0; }
+canvas { display: block; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <span class="lbl">도구</span>
+  <button id="t-pencil" class="btn on" onclick="setTool('pencil')">✏️ 펜슬</button>
+  <button id="t-line"   class="btn"    onclick="setTool('line')">📏 직선</button>
+  <button id="t-eraser" class="btn"    onclick="setTool('eraser')">🧹 지우개</button>
+  <div class="sep"></div>
+  <span class="lbl">색상</span>
+  <button id="c-red"  class="btn r on" onclick="setColor('red')">🔴 탭</button>
+  <button id="c-blue" class="btn b"    onclick="setColor('blue')">🔵 극판</button>
+  <div class="sep"></div>
+  <button class="btn" onclick="undo()" title="Ctrl+Z">↩️ 되돌리기</button>
+  <button class="btn" onclick="clearAll()">🗑️ 초기화</button>
+</div>
+<div id="canvas-wrap">
+  <canvas id="c"></canvas>
+</div>
+
+<script>
+// ── 상태 변수 ──────────────────────────────────────────────────
+var cvs = null;
+var W = 700, H = 200;
+var tool = 'pencil';
+var strokeColor = '#ff3333';
+var drawn = [];        // {type, color, points:[...], obj:fabricObj}
+var undoStack = [];    // fabricObj references in order
+
+var isLineDrawing = false;
+var lineStart = null;
+var previewLine = null;
+var curPathPts = [];   // mouse-captured points for current pencil stroke
+
+var initialized = false;
+var lastBgUrl = '';
+
+// ── Streamlit 프로토콜 ──────────────────────────────────────────
+window.addEventListener('message', function(e) {
+  var d = e.data;
+  if (!d || !d.type) return;
+  if (d.type === 'streamlit:render') {
+    var a = d.args || {};
+    var bgUrl = a.bgUrl || '';
+    var w = parseInt(a.width) || 700;
+    var h = parseInt(a.height) || 200;
+    if (!initialized || bgUrl !== lastBgUrl || w !== W || h !== H) {
+      initCanvas(bgUrl, w, h);
+      initialized = true;
+      lastBgUrl = bgUrl;
+    }
+  }
+});
+
+window.parent.postMessage({ type: 'streamlit:componentReady', apiVersion: 1 }, '*');
+
+function setFrameHeight(h) {
+  window.parent.postMessage({ type: 'streamlit:setFrameHeight', height: h }, '*');
+}
+
+function sendValue(val) {
+  window.parent.postMessage({ type: 'streamlit:setComponentValue', value: val }, '*');
+}
+
+// ── 캔버스 초기화 ───────────────────────────────────────────────
+function initCanvas(bgUrl, w, h) {
+  W = w; H = h;
+
+  if (cvs) { cvs.dispose(); }
+  drawn = []; undoStack = [];
+
+  cvs = new fabric.Canvas('c', {
+    width: w, height: h,
+    selection: false,
+    isDrawingMode: true
+  });
+
+  // 배경 이미지 설정
+  if (bgUrl) {
+    fabric.Image.fromURL(bgUrl, function(img) {
+      if (!img || !img.width) return;
+      cvs.setBackgroundImage(img, cvs.renderAll.bind(cvs), {
+        scaleX: w / img.width,
+        scaleY: h / img.height,
+        originX: 'left',
+        originY: 'top'
+      });
+    }, { crossOrigin: 'anonymous' });
+  }
+
+  // 브러시 설정
+  cvs.freeDrawingBrush = new fabric.PencilBrush(cvs);
+  cvs.freeDrawingBrush.color = strokeColor;
+  cvs.freeDrawingBrush.width = 3;
+  cvs.freeDrawingBrush.decimate = 4;  // 경로 간략화
+
+  // 이벤트
+  cvs.on('mouse:down', onDown);
+  cvs.on('mouse:move', onMove);
+  cvs.on('mouse:up',   onUp);
+  cvs.on('path:created', onPathCreated);
+
+  applyTool();
+  updateBtns();
+  setFrameHeight(h + 44);   // 툴바 42px + 여백 2px
+}
+
+// ── 마우스 이벤트 ────────────────────────────────────────────────
+function onDown(opt) {
+  if (!cvs) return;
+  var p = cvs.getPointer(opt.e);
+
+  if (tool === 'pencil') {
+    curPathPts = [[p.x, p.y]];
+
+  } else if (tool === 'line') {
+    lineStart = [p.x, p.y];
+    isLineDrawing = true;
+    previewLine = new fabric.Line([p.x, p.y, p.x, p.y], {
+      stroke: strokeColor, strokeWidth: 3,
+      selectable: false, evented: false,
+      strokeLineCap: 'round'
+    });
+    cvs.add(previewLine);
+
+  } else if (tool === 'eraser') {
+    // findTarget 으로 가장 위 객체 클릭 감지
+    var target = cvs.findTarget(opt.e, false);
+    if (target) {
+      var idx = drawn.findIndex(function(d) { return d.obj === target; });
+      if (idx !== -1) drawn.splice(idx, 1);
+      undoStack = undoStack.filter(function(u) { return u !== target; });
+      cvs.remove(target);
+      cvs.renderAll();
+      sendData();
+    }
+  }
+}
+
+function onMove(opt) {
+  if (!cvs) return;
+  if (tool === 'pencil' && cvs.isDrawingMode) {
+    var p = cvs.getPointer(opt.e);
+    curPathPts.push([p.x, p.y]);
+  } else if (tool === 'line' && isLineDrawing && previewLine) {
+    var p = cvs.getPointer(opt.e);
+    previewLine.set({ x2: p.x, y2: p.y });
+    cvs.renderAll();
+  }
+}
+
+function onUp(opt) {
+  if (!cvs) return;
+  if (tool === 'line' && isLineDrawing) {
+    var p = cvs.getPointer(opt.e);
+    if (previewLine) {
+      previewLine.set({ x2: p.x, y2: p.y, selectable: false, evented: false });
+      cvs.renderAll();
+      drawn.push({ type: 'line', color: strokeColor,
+                   points: [lineStart, [p.x, p.y]], obj: previewLine });
+      undoStack.push(previewLine);
+      previewLine = null;
+      sendData();
+    }
+    isLineDrawing = false;
+    lineStart = null;
+  }
+}
+
+function onPathCreated(opt) {
+  var fp = opt.path;
+  fp.set({ stroke: strokeColor, selectable: false, evented: false });
+
+  // 좌표 추출 (calcTransformMatrix 사용 → 캔버스 절대 좌표)
+  var pts = [];
+  try {
+    var mat = fp.calcTransformMatrix();
+    fp.path.forEach(function(cmd) {
+      if (cmd.length >= 3 && ['M','L','Q','C'].includes(cmd[0])) {
+        var lx = cmd[cmd.length - 2];
+        var ly = cmd[cmd.length - 1];
+        var tp = fabric.util.transformPoint({ x: lx, y: ly }, mat);
+        pts.push([Math.round(tp.x * 10) / 10, Math.round(tp.y * 10) / 10]);
+      }
+    });
+  } catch(e) {}
+
+  // 변환 실패 시 마우스 캡처 포인트로 폴백
+  if (pts.length < 2 && curPathPts.length >= 2) {
+    pts = curPathPts.slice();
+  }
+
+  if (pts.length >= 2) {
+    drawn.push({ type: 'path', color: strokeColor, points: pts, obj: fp });
+    undoStack.push(fp);
+    sendData();
+  }
+  curPathPts = [];
+}
+
+// ── 데이터 전송 ─────────────────────────────────────────────────
+function sendData() {
+  var lines = drawn.map(function(d) {
+    return { type: d.type, stroke: d.color, points: d.points };
+  });
+  sendValue({ lines: lines, width: W, height: H });
+}
+
+// ── 도구 / 색상 제어 ────────────────────────────────────────────
+function setTool(t) {
+  tool = t;
+  applyTool();
+  updateBtns();
+}
+
+function applyTool() {
+  if (!cvs) return;
+  if (tool === 'pencil') {
+    cvs.isDrawingMode = true;
+    cvs.selection = false;
+    cvs.freeDrawingBrush.color = strokeColor;
+    cvs.freeDrawingBrush.width = 3;
+    cvs.defaultCursor = 'crosshair';
+  } else if (tool === 'line') {
+    cvs.isDrawingMode = false;
+    cvs.selection = false;
+    cvs.defaultCursor = 'crosshair';
+  } else if (tool === 'eraser') {
+    cvs.isDrawingMode = false;
+    cvs.selection = false;
+    cvs.defaultCursor = 'pointer';
+  }
+}
+
+function setColor(c) {
+  strokeColor = (c === 'red') ? '#ff3333' : '#3388ff';
+  if (cvs && cvs.freeDrawingBrush) {
+    cvs.freeDrawingBrush.color = strokeColor;
+  }
+  updateBtns();
+}
+
+function undo() {
+  if (!cvs || undoStack.length === 0) return;
+  var last = undoStack.pop();
+  drawn = drawn.filter(function(d) { return d.obj !== last; });
+  cvs.remove(last);
+  cvs.renderAll();
+  sendData();
+}
+
+function clearAll() {
+  if (!cvs) return;
+  cvs.getObjects().forEach(function(o) { cvs.remove(o); });
+  drawn = []; undoStack = [];
+  cvs.renderAll();
+  sendData();
+}
+
+function updateBtns() {
+  ['pencil','line','eraser'].forEach(function(t) {
+    var el = document.getElementById('t-' + t);
+    if (el) { el.className = 'btn' + (t === tool ? ' on' : ''); }
+  });
+  var r = document.getElementById('c-red');
+  var b = document.getElementById('c-blue');
+  if (r) r.className = 'btn r' + (strokeColor === '#ff3333' ? ' on' : '');
+  if (b) b.className = 'btn b' + (strokeColor === '#3388ff' ? ' on' : '');
+}
+
+// ── 키보드 단축키 ────────────────────────────────────────────────
+document.addEventListener('keydown', function(e) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+    e.preventDefault();
+    undo();
+  }
+});
+</script>
+</body>
+</html>
