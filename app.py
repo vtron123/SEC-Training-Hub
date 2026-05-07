@@ -3476,14 +3476,18 @@ with tab4:
                 ds = _pydicom.dcmread(_sc_io.BytesIO(raw))
                 px = ds.pixel_array
                 if px.ndim == 2:
-                    mn, mx = float(px.min()), float(px.max())
-                    # 8비트 정규화 (분석용)
-                    px8 = ((px - mn) / (mx - mn + 1e-6) * 255).astype(_np.uint8) if mx > mn \
-                          else _np.zeros_like(px, dtype=_np.uint8)
-                    # 표시용: CLAHE 대비 강화
-                    _pil_raw = _PILImage.fromarray(px8, "L")
+                    # ── 분석용 8bit: 1~99 퍼센타일 클리핑 → 정규화 ──
+                    p1  = float(_np.percentile(px, 1))
+                    p99 = float(_np.percentile(px, 99))
+                    if p99 > p1:
+                        px_c = _np.clip(px.astype(_np.float32), p1, p99)
+                        px8  = ((px_c - p1) / (p99 - p1) * 255).astype(_np.uint8)
+                    else:
+                        px8  = _np.zeros_like(px, dtype=_np.uint8)
+                    # ── 표시용: 추가 히스토그램 균등화로 대비 극대화 ──
+                    _pil_raw    = _PILImage.fromarray(px8, "L")
                     img_display = _ImgOps.equalize(_pil_raw).convert("RGB")
-                    img_gray    = px8  # 프로파일 추출은 원본 8비트 사용
+                    img_gray    = px8  # 프로파일 추출은 클리핑 8비트 사용
                 else:
                     px8 = px[:,:,:3].astype(_np.uint8) if px.max() <= 255 else \
                           ((px[:,:,:3] - px[:,:,:3].min()) / (px[:,:,:3].max() - px[:,:,:3].min() + 1e-6) * 255).astype(_np.uint8)
