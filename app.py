@@ -3548,9 +3548,8 @@ with tab4:
                         px8  = ((px_c - p1) / (p99 - p1) * 255).astype(_np.uint8)
                     else:
                         px8  = _np.zeros_like(px, dtype=_np.uint8)
-                    # ── 표시용: 추가 히스토그램 균등화로 대비 극대화 ──
-                    _pil_raw    = _PILImage.fromarray(px8, "L")
-                    img_display = _ImgOps.equalize(_pil_raw).convert("RGB")
+                    # ── 표시용: 퍼센타일 정규화 그대로 (equalize 없음) ──
+                    img_display = _PILImage.fromarray(px8, "L").convert("RGB")
                     img_gray    = px8  # 프로파일 추출은 클리핑 8비트 사용
                 else:
                     px8 = px[:,:,:3].astype(_np.uint8) if px.max() <= 255 else \
