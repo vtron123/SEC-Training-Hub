@@ -3540,15 +3540,19 @@ with tab4:
             'style="width:100%;height:auto;display:block;border-radius:8px">',
             unsafe_allow_html=True)
 
-    def _get_ref_img(mname):
-        """참조 이미지 PIL 반환"""
+    def _get_ref_img(mname, prefer_side=False):
+        """참조 이미지 PIL 반환
+        prefer_side=True  → side view(1.jpg) 우선
+        prefer_side=False → cross view(0.jpg) 우선
+        """
         import pathlib as _pl
         script_dir = _pl.Path(__file__).resolve().parent
         entry = _MANIFEST.get(mname, {}) if _MANIFEST else {}
         folder_id = entry.get("folder_id") if isinstance(entry, dict) else entry
         if not folder_id:
             return None
-        for fname in ("0.jpg", "1.jpg"):
+        order = ("1.jpg", "0.jpg") if prefer_side else ("0.jpg", "1.jpg")
+        for fname in order:
             rp = script_dir / "ref_imgs" / str(folder_id) / fname
             if rp.exists():
                 return _PILImage.open(rp).convert("RGB")
@@ -3739,7 +3743,9 @@ with tab4:
                 st.markdown('</div>', unsafe_allow_html=True)
 
                 _ref_num = _medals[_ref_idx] if _ref_idx < len(_medals) else ""
-                _rimg = _get_ref_img(_ref_mname)
+                # 업로드 비율로 side/cross 판별 → 맞는 뷰 우선 로드
+                _is_side = (_aspect > 2.0)
+                _rimg = _get_ref_img(_ref_mname, prefer_side=_is_side)
                 st.markdown(
                     '<div style="background:#0f172a;border-radius:12px;padding:10px 14px 10px;margin-bottom:8px">'
                     f'<div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;'
@@ -3751,55 +3757,3 @@ with tab4:
                     st.markdown('<div style="color:#475569;padding:20px;text-align:center">참조 이미지 없음</div>',
                                 unsafe_allow_html=True)
                 st.markdown('</div>', unsafe_allow_html=True)
-
-                # ── 자동 프로파일 비교 차트 ──
-                if _auto_profs and _SCAN_DB:
-                    _ref_mdata = _SCAN_DB["machines"].get(_ref_mname, {})
-                    _ref_em    = _ref_mdata.get("elec_mean", {})
-                    _ref_h     = _ref_em.get("h_profile_mean")
-                    _ref_ht    = _ref_em.get("h_top_mean")
-                    _ref_v     = _ref_em.get("v_profile_mean")
-
-                    if _ref_h:
-                        import altair as _alt2
-                        import pandas as _pd_sc2
-
-                        st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
-                        st.markdown(
-                            '<div style="background:#0f172a;border-radius:14px;padding:14px 18px">'
-                            '<div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;'
-                            'text-transform:uppercase;margin-bottom:4px">📈 자동 프로파일 비교</div>'
-                            f'<div style="color:#475569;font-size:9px;margin-bottom:12px">'
-                            f'내 이미지 vs {_ref_mname} DB 평균 ({_ref_em.get("profile_count",0)}장)</div>',
-                            unsafe_allow_html=True)
-
-                        _profile_pairs = [
-                            ("수평 중앙 프로파일 (H-Center)", _auto_profs["h_center"], _ref_h,  "#a78bfa", "#475569"),
-                            ("수평 상단 프로파일 (H-Top)",    _auto_profs["h_top"],    _ref_ht or _ref_h, "#34d399", "#475569"),
-                            ("수직 중앙 프로파일 (V-Center)", _auto_profs["v_center"], _ref_v  or _ref_h, "#60a5fa", "#475569"),
-                        ]
-
-                        for _ptitle, _q_raw, _db_ref, _qcol, _dcol in _profile_pairs:
-                            _qn  = _norm_resample(_q_raw).tolist()
-                            _dbn = list(_db_ref)
-                            _n   = min(len(_qn), len(_dbn), _N_POINTS)
-                            _df_cmp = _pd_sc2.DataFrame({
-                                "x":    list(range(_n)) * 2,
-                                "y":    _qn[:_n] + _dbn[:_n],
-                                "종류": ["내 이미지"] * _n + [f"DB({_ref_mname[:12]})"] * _n,
-                            })
-                            _ch2 = (_alt2.Chart(_df_cmp)
-                                    .mark_line(strokeWidth=1.5)
-                                    .encode(
-                                        x=_alt2.X("x", axis=_alt2.Axis(title="위치", labelFontSize=8)),
-                                        y=_alt2.Y("y", axis=_alt2.Axis(title="정규화 밝기", labelFontSize=8)),
-                                        color=_alt2.Color("종류:N", scale=_alt2.Scale(
-                                            domain=["내 이미지", f"DB({_ref_mname[:12]})"],
-                                            range=[_qcol, _dcol])),
-                                        strokeDash=_alt2.StrokeDash("종류:N", scale=_alt2.Scale(
-                                            domain=["내 이미지", f"DB({_ref_mname[:12]})"],
-                                            range=[[1,0],[4,2]])))
-                                    .properties(height=110, title=_ptitle))
-                            st.altair_chart(_ch2, use_container_width=True)
-
-                        st.markdown('</div>', unsafe_allow_html=True)
