@@ -3727,33 +3727,30 @@ with tab4:
                                 st.session_state["sc_ref_idx"] = _bi
                                 st.rerun()
 
-                # ── Row: 이미지 비교 ──
+                # ── 이미지 비교: 위아래 배치 ──
                 st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
-                _img2l, _img2r = st.columns(2)
 
-                with _img2l:
-                    st.markdown(
-                        '<div style="background:#0f172a;border-radius:12px;padding:10px 14px 8px;margin-bottom:4px">'
-                        '<div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;'
-                        'text-transform:uppercase;margin-bottom:6px">📤 UPLOADED IMAGE</div>',
-                        unsafe_allow_html=True)
-                    _show_img(_img_rgb)
-                    st.markdown('</div>', unsafe_allow_html=True)
+                st.markdown(
+                    '<div style="background:#0f172a;border-radius:12px;padding:10px 14px 10px;margin-bottom:8px">'
+                    '<div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;'
+                    'text-transform:uppercase;margin-bottom:8px">📤 UPLOADED IMAGE</div>',
+                    unsafe_allow_html=True)
+                _show_img(_img_rgb, max_w=1400)
+                st.markdown('</div>', unsafe_allow_html=True)
 
-                with _img2r:
-                    _ref_num = _medals[_ref_idx] if _ref_idx < len(_medals) else ""
-                    st.markdown(
-                        '<div style="background:#0f172a;border-radius:12px;padding:10px 14px 8px;margin-bottom:4px">'
-                        f'<div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;'
-                        f'text-transform:uppercase;margin-bottom:6px">📷 참조 — {_ref_num}위 {_ref_mname[:28]}</div>',
-                        unsafe_allow_html=True)
-                    _rimg = _get_ref_img(_ref_mname)
-                    if _rimg:
-                        _show_img(_rimg)   # 크롭 없이 원본 전체 표시
-                    else:
-                        st.markdown('<div style="color:#475569;padding:20px;text-align:center">참조 이미지 없음</div>',
-                                    unsafe_allow_html=True)
-                    st.markdown('</div>', unsafe_allow_html=True)
+                _ref_num = _medals[_ref_idx] if _ref_idx < len(_medals) else ""
+                _rimg = _get_ref_img(_ref_mname)
+                st.markdown(
+                    '<div style="background:#0f172a;border-radius:12px;padding:10px 14px 10px;margin-bottom:8px">'
+                    f'<div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;'
+                    f'text-transform:uppercase;margin-bottom:8px">📷 참조 — {_ref_num}위 {_ref_mname}</div>',
+                    unsafe_allow_html=True)
+                if _rimg:
+                    _show_img(_rimg, max_w=1400)
+                else:
+                    st.markdown('<div style="color:#475569;padding:20px;text-align:center">참조 이미지 없음</div>',
+                                unsafe_allow_html=True)
+                st.markdown('</div>', unsafe_allow_html=True)
 
                 # ── 자동 프로파일 비교 차트 ──
                 if _auto_profs and _SCAN_DB:
