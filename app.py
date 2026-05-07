@@ -3461,7 +3461,8 @@ with tab4:
         return scores[:10]
 
     def _load_img_from_file(f):
-        """업로드 파일 → PIL Image(RGB), grayscale ndarray, DICOM meta dict"""
+        """업로드 파일 → PIL Image(RGB display), grayscale ndarray(분석용), DICOM meta dict"""
+        from PIL import ImageOps as _ImgOps
         meta = {}
         if f.name.lower().endswith(".dcm"):
             if not _pydicom_ok:
@@ -3470,9 +3471,20 @@ with tab4:
             try:
                 ds = _pydicom.dcmread(_sc_io.BytesIO(raw))
                 px = ds.pixel_array
-                mn, mx = float(px.min()), float(px.max())
-                px8 = ((px - mn) / (mx - mn + 1e-6) * 255).astype(_np.uint8) if mx > mn else _np.zeros_like(px, dtype=_np.uint8)
-                img = _PILImage.fromarray(px8, "L") if px8.ndim == 2 else _PILImage.fromarray(px8[:,:,:3])
+                if px.ndim == 2:
+                    mn, mx = float(px.min()), float(px.max())
+                    # 8비트 정규화 (분석용)
+                    px8 = ((px - mn) / (mx - mn + 1e-6) * 255).astype(_np.uint8) if mx > mn \
+                          else _np.zeros_like(px, dtype=_np.uint8)
+                    # 표시용: CLAHE 대비 강화
+                    _pil_raw = _PILImage.fromarray(px8, "L")
+                    img_display = _ImgOps.equalize(_pil_raw).convert("RGB")
+                    img_gray    = px8  # 프로파일 추출은 원본 8비트 사용
+                else:
+                    px8 = px[:,:,:3].astype(_np.uint8) if px.max() <= 255 else \
+                          ((px[:,:,:3] - px[:,:,:3].min()) / (px[:,:,:3].max() - px[:,:,:3].min() + 1e-6) * 255).astype(_np.uint8)
+                    img_display = _PILImage.fromarray(px8, "RGB")
+                    img_gray    = _np.array(_PILImage.fromarray(px8).convert("L"), dtype=_np.uint8)
                 for tag, lbl in [("KVP","관전압(kVp)"),("Manufacturer","제조사"),
                                   ("ManufacturerModelName","모델명"),("SeriesDescription","시리즈"),
                                   ("Modality","모달리티"),("Rows","행(px)"),("Columns","열(px)"),
@@ -3480,13 +3492,14 @@ with tab4:
                                   ("BitsAllocated","비트깊이")]:
                     try: meta[lbl] = str(getattr(ds, tag))
                     except: pass
-            except Exception as e:
+            except Exception:
                 return None, None, {}
+            return img_display, img_gray, meta
         else:
             img = _PILImage.open(f)
-        img_rgb  = img.convert("RGB")
-        img_gray = _np.array(img.convert("L"), dtype=_np.uint8)
-        return img_rgb, img_gray, meta
+            img_rgb  = img.convert("RGB")
+            img_gray = _np.array(img.convert("L"), dtype=_np.uint8)
+            return img_rgb, img_gray, meta
 
     def _img_to_b64(pil_img, max_w=1200, quality=85):
         w, h = pil_img.size
@@ -3585,22 +3598,41 @@ with tab4:
 
         _drawing_mode  = "line" if "직선" in _tool_sel else "freedraw"
         _stroke_color  = "#ff3333" if "빨강" in _color_sel else "#3388ff"
-        _stroke_w      = 2 if _drawing_mode == "line" else 3
+        _stroke_w      = 3 if _drawing_mode == "line" else 4
 
-        # ── 드로잉 캔버스 ──
+        # ── 캔버스 배경 이미지 준비 ──
         _canvas_bg = _img_rgb.resize((_canvas_w, _canvas_h), _PILImage.LANCZOS)
-        _canvas_key = f"sc_canvas_{_fkey}_{_clear_btn}"
+
+        # clear 버튼 → session_state 카운터로 key 제어
+        if _clear_btn:
+            st.session_state["sc_clear_cnt"] = st.session_state.get("sc_clear_cnt", 0) + 1
+        _clear_cnt = st.session_state.get("sc_clear_cnt", 0)
+        _canvas_key = f"sc_canvas_{_fkey}_{_clear_cnt}"
+
+        # ── 이미지 HTML 표시 (배경 이미지 확인용) ──
+        _b64_bg = _img_to_b64(_canvas_bg, max_w=_canvas_w)
+        st.markdown(
+            f'<div style="border:2px solid #334155;border-bottom:none;border-radius:8px 8px 0 0;'
+            f'overflow:hidden;width:{_canvas_w}px;background:#000">'
+            f'<img src="data:image/jpeg;base64,{_b64_bg}" '
+            f'style="width:{_canvas_w}px;height:{_canvas_h}px;object-fit:fill;display:block">'
+            f'</div>',
+            unsafe_allow_html=True)
+        st.markdown(
+            '<div style="font-size:10px;color:#94a3b8;padding:2px 4px;margin-bottom:2px">'
+            '👆 업로드 이미지 — 아래 캔버스에서 경계선을 그으세요 (같은 축척)</div>',
+            unsafe_allow_html=True)
 
         if not _canvas_ok:
             st.warning("캔버스 패키지 없음 — 이미지만 표시합니다.")
-            _show_img(_img_rgb)
             _canvas_result = None
         else:
             _canvas_result = st_canvas(
                 fill_color="rgba(0,0,0,0)",
                 stroke_width=_stroke_w,
                 stroke_color=_stroke_color,
-                background_image=_canvas_bg,
+                background_image=_canvas_bg,       # 혹시 작동 시 배경으로
+                background_color="rgba(0,0,50,0.85)",  # 반투명 다크 (미작동 시 fallback)
                 update_streamlit=True,
                 drawing_mode=_drawing_mode,
                 height=_canvas_h,
