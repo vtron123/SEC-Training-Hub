@@ -3434,8 +3434,31 @@ with tab4:
         except Exception:
             return 0.5
 
+    def _fft_similarity(q_prof, db_prof):
+        """FFT 주파수 유사도 — 탭 간격(주기) 비교"""
+        try:
+            q = _norm_resample(q_prof)
+            d = _np.array(db_prof, dtype=float)
+            # DC 제거 후 주파수 스펙트럼
+            fq = _np.abs(_np.fft.rfft(q))[1:]
+            fd = _np.abs(_np.fft.rfft(d))[1:]
+            # 각각 정규화
+            fq = fq / (_np.max(fq) + 1e-6)
+            fd = fd / (_np.max(fd) + 1e-6)
+            # 코사인 유사도
+            cos = float(_np.dot(fq, fd) / (_np.linalg.norm(fq) * _np.linalg.norm(fd) + 1e-6))
+            return max(0.0, cos)
+        except Exception:
+            return 0.5
+
+    def _combined_similarity(q_prof, db_prof):
+        """DTW 40% + FFT 60% 혼합 유사도"""
+        dtw_s = _dtw_similarity(q_prof, db_prof)
+        fft_s = _fft_similarity(q_prof, db_prof)
+        return 0.4 * dtw_s + 0.6 * fft_s
+
     def _rank_by_profile(query_profiles, db):
-        """드로잉 프로파일 → 장비별 DTW 유사도 랭킹"""
+        """드로잉 프로파일 → 장비별 유사도 랭킹 (DTW + FFT 혼합)"""
         if not query_profiles or db is None:
             return []
         scores = []
@@ -3448,12 +3471,21 @@ with tab4:
                 continue
             sims = []
             for _, color, prof in query_profiles:
-                # 색상에 따라 대조 프로파일 선택 (빨강=탭, 파랑=극판)
-                if "ff" in color.lower() and "3" not in color.lower():
-                    ref = db_ht or db_h
+                # 색상 판별 수정: 빨강=#ff3333, 파랑=#3388ff
+                c = color.lower().replace("#", "")
+                is_red = c.startswith("ff")   # ff3333
+                if is_red:
+                    # 탭(빨강) → 상단 프로파일 (탭 끝 패턴)
+                    ref_h  = db_ht or db_h
+                    ref_v  = db_v  or db_h
                 else:
-                    ref = db_h
-                sims.append(_dtw_similarity(prof, ref))
+                    # 극판(파랑) → 중앙 프로파일 (전극 본체 패턴)
+                    ref_h  = db_h
+                    ref_v  = db_v or db_h
+                # 수평/수직 방향 중 더 긴 쪽 선택해서 비교
+                sim_h = _combined_similarity(prof, ref_h)
+                sim_v = _combined_similarity(prof, ref_v) if ref_v else sim_h
+                sims.append(max(sim_h, sim_v))
             avg_sim = _np.mean(sims) if sims else 0.5
             scores.append((mname, round(float(avg_sim), 4),
                            mdata.get("cell_type", "?"),
