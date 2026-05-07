@@ -2,10 +2,9 @@
 <html>
 <head>
 <meta charset="utf-8">
-<script src="https://cdn.jsdelivr.net/npm/fabric@5.3.1/dist/fabric.min.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { background: #000; font-family: -apple-system, BlinkMacSystemFont, sans-serif; overflow: hidden; }
+body { background: #0f172a; font-family: -apple-system, BlinkMacSystemFont, sans-serif; overflow: hidden; }
 #bar {
   background: #1e293b;
   border-bottom: 1px solid #334155;
@@ -13,13 +12,14 @@ body { background: #000; font-family: -apple-system, BlinkMacSystemFont, sans-se
   display: flex;
   gap: 4px;
   align-items: center;
-  flex-wrap: wrap;
-  height: 42px;
+  flex-wrap: nowrap;
+  height: 40px;
+  overflow: hidden;
 }
-.lbl { color: #64748b; font-size: 10px; margin-right: 1px; white-space: nowrap; }
-.sep { width: 1px; height: 20px; background: #475569; margin: 0 3px; flex-shrink: 0; }
+.lbl { color: #64748b; font-size: 10px; flex-shrink: 0; }
+.sep { width: 1px; height: 18px; background: #475569; margin: 0 3px; flex-shrink: 0; }
 .btn {
-  padding: 3px 9px;
+  padding: 3px 8px;
   border: 1px solid #475569;
   border-radius: 5px;
   background: #334155;
@@ -27,15 +27,17 @@ body { background: #000; font-family: -apple-system, BlinkMacSystemFont, sans-se
   cursor: pointer;
   font-size: 11px;
   white-space: nowrap;
-  transition: background 0.12s;
   flex-shrink: 0;
 }
-.btn:hover { background: #3f4f6a; }
-.btn.on { background: #4f46e5; border-color: #818cf8; color: #fff; font-weight: 600; }
-.btn.r.on { background: #dc2626; border-color: #f87171; }
-.btn.b.on { background: #2563eb; border-color: #60a5fa; }
-#canvas-wrap { line-height: 0; }
-canvas { display: block; }
+.btn.on { background: #4f46e5; border-color: #818cf8; color: #fff; }
+.btn.r  { background: #334155; }
+.btn.r.on { background: #dc2626; border-color: #f87171; color: #fff; }
+.btn.b  { background: #334155; }
+.btn.b.on { background: #2563eb; border-color: #60a5fa; color: #fff; }
+#wrap { position: relative; line-height: 0; }
+canvas { display: block; cursor: crosshair; }
+#msg { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+       color: #64748b; font-size: 12px; pointer-events: none; }
 </style>
 </head>
 <body>
@@ -45,282 +47,272 @@ canvas { display: block; }
   <button id="t-line"   class="btn"    onclick="setTool('line')">📏 직선</button>
   <button id="t-eraser" class="btn"    onclick="setTool('eraser')">🧹 지우개</button>
   <div class="sep"></div>
-  <span class="lbl">색상</span>
   <button id="c-red"  class="btn r on" onclick="setColor('red')">🔴 탭</button>
   <button id="c-blue" class="btn b"    onclick="setColor('blue')">🔵 극판</button>
   <div class="sep"></div>
   <button class="btn" onclick="undo()" title="Ctrl+Z">↩️ 되돌리기</button>
   <button class="btn" onclick="clearAll()">🗑️ 초기화</button>
 </div>
-<div id="canvas-wrap">
+<div id="wrap">
   <canvas id="c"></canvas>
+  <div id="msg">이미지 로딩 중...</div>
 </div>
 
 <script>
-// ── 상태 변수 ──────────────────────────────────────────────────
-var cvs = null;
-var W = 700, H = 200;
-var tool = 'pencil';
-var strokeColor = '#ff3333';
-var drawn = [];        // {type, color, points:[...], obj:fabricObj}
-var undoStack = [];    // fabricObj references in order
+// ── 변수 ────────────────────────────────────────────────────────
+var canvas = document.getElementById('c');
+var ctx    = canvas.getContext('2d');
+var msgEl  = document.getElementById('msg');
+var W = 900, H = 200;
+var tool = 'pencil', strokeColor = '#ff3333';
+var strokes   = [];   // [{type:'path'|'line', color, pts:[[x,y],...]}]
+var bgImage   = new Image();
+var bgLoaded  = false;
 
-var isLineDrawing = false;
+// 현재 드로잉 상태
+var isDown  = false;
+var curPts  = [];
 var lineStart = null;
-var previewLine = null;
-var curPathPts = [];   // mouse-captured points for current pencil stroke
 
-var initialized = false;
-var lastBgUrl = '';
+// initialized flag
+var initialized = false, lastBgUrl = '';
 
 // ── Streamlit 프로토콜 ──────────────────────────────────────────
 window.addEventListener('message', function(e) {
   var d = e.data;
   if (!d || !d.type) return;
-  if (d.type === 'streamlit:render' || d.type === 'render') {
+  if (d.type === 'streamlit:render') {
     var a = d.args || {};
-    var bgUrl = a.bgUrl || '';
-    var w = parseInt(a.width) || 700;
+    var bgUrl = (a.bgUrl || '').toString();
+    var w = parseInt(a.width)  || 900;
     var h = parseInt(a.height) || 200;
     if (!initialized || bgUrl !== lastBgUrl || w !== W || h !== H) {
-      initCanvas(bgUrl, w, h);
+      setupSize(w, h);
+      loadBg(bgUrl);
       initialized = true;
       lastBgUrl = bgUrl;
     }
   }
 });
 
-// isStreamlitMessage: true 가 Streamlit 컴포넌트 프로토콜 필수 필드
-window.parent.postMessage({
-  isStreamlitMessage: true,
-  type: 'streamlit:componentReady',
-  apiVersion: 1
-}, '*');
+// Streamlit 에 준비됨 알림
+function stPost(obj) {
+  obj.isStreamlitMessage = true;
+  window.parent.postMessage(obj, '*');
+}
+stPost({ type: 'streamlit:componentReady', apiVersion: 1 });
 
 function setFrameHeight(h) {
-  window.parent.postMessage({
-    isStreamlitMessage: true,
-    type: 'streamlit:setFrameHeight',
-    height: h
-  }, '*');
+  stPost({ type: 'streamlit:setFrameHeight', height: h });
 }
-
 function sendValue(val) {
-  window.parent.postMessage({
-    isStreamlitMessage: true,
-    type: 'streamlit:setComponentValue',
-    value: val,
-    dataType: 'json'
-  }, '*');
+  stPost({ type: 'streamlit:setComponentValue', value: val, dataType: 'json' });
 }
 
-// ── 캔버스 초기화 ───────────────────────────────────────────────
-function initCanvas(bgUrl, w, h) {
+// 초기 높이
+setFrameHeight(260);
+
+// ── 크기 / 배경 ──────────────────────────────────────────────────
+function setupSize(w, h) {
   W = w; H = h;
+  canvas.width  = w;
+  canvas.height = h;
+  strokes = [];
+  setFrameHeight(h + 42);
+}
 
-  if (cvs) { cvs.dispose(); }
-  drawn = []; undoStack = [];
+function loadBg(url) {
+  if (!url) { bgLoaded = false; redraw(); return; }
+  bgLoaded = false;
+  msgEl.textContent = '이미지 로딩 중...';
+  msgEl.style.display = 'block';
+  var img = new Image();
+  img.onload = function() {
+    bgImage  = img;
+    bgLoaded = true;
+    msgEl.style.display = 'none';
+    redraw();
+  };
+  img.onerror = function() {
+    msgEl.textContent = '이미지 로드 실패';
+  };
+  img.src = url;
+}
 
-  cvs = new fabric.Canvas('c', {
-    width: w, height: h,
-    selection: false,
-    isDrawingMode: true
-  });
-
-  // 배경 이미지 설정 (data URL이므로 crossOrigin 불필요)
-  if (bgUrl) {
-    fabric.Image.fromURL(bgUrl, function(img) {
-      if (!img) return;
-      var iw = img.width || img.naturalWidth || w;
-      var ih = img.height || img.naturalHeight || h;
-      img.set({ selectable: false, evented: false });
-      cvs.setBackgroundImage(img, cvs.renderAll.bind(cvs), {
-        scaleX: w / iw,
-        scaleY: h / ih,
-        originX: 'left',
-        originY: 'top'
-      });
-    });
+// ── 렌더링 ──────────────────────────────────────────────────────
+function redraw() {
+  ctx.clearRect(0, 0, W, H);
+  if (bgLoaded) {
+    ctx.drawImage(bgImage, 0, 0, W, H);
+  } else {
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(0, 0, W, H);
   }
+  strokes.forEach(drawStroke);
+}
 
-  // 브러시 설정
-  cvs.freeDrawingBrush = new fabric.PencilBrush(cvs);
-  cvs.freeDrawingBrush.color = strokeColor;
-  cvs.freeDrawingBrush.width = 3;
-  cvs.freeDrawingBrush.decimate = 4;  // 경로 간략화
-
-  // 이벤트
-  cvs.on('mouse:down', onDown);
-  cvs.on('mouse:move', onMove);
-  cvs.on('mouse:up',   onUp);
-  cvs.on('path:created', onPathCreated);
-
-  applyTool();
-  updateBtns();
-  setFrameHeight(h + 44);   // 툴바 42px + 여백 2px
+function drawStroke(s, preview) {
+  if (!s || !s.pts || s.pts.length < 1) return;
+  ctx.save();
+  ctx.strokeStyle = s.color || '#ff3333';
+  ctx.lineWidth   = 3;
+  ctx.lineCap     = 'round';
+  ctx.lineJoin    = 'round';
+  ctx.beginPath();
+  ctx.moveTo(s.pts[0][0], s.pts[0][1]);
+  for (var i = 1; i < s.pts.length; i++) {
+    ctx.lineTo(s.pts[i][0], s.pts[i][1]);
+  }
+  ctx.stroke();
+  ctx.restore();
 }
 
 // ── 마우스 이벤트 ────────────────────────────────────────────────
-function onDown(opt) {
-  if (!cvs) return;
-  var p = cvs.getPointer(opt.e);
+function getPos(e) {
+  var rect = canvas.getBoundingClientRect();
+  var scaleX = canvas.width  / rect.width;
+  var scaleY = canvas.height / rect.height;
+  return [
+    (e.clientX - rect.left) * scaleX,
+    (e.clientY - rect.top)  * scaleY
+  ];
+}
 
+canvas.addEventListener('mousedown', function(e) {
+  var p = getPos(e);
+  isDown = true;
   if (tool === 'pencil') {
-    curPathPts = [[p.x, p.y]];
-
+    curPts = [p];
   } else if (tool === 'line') {
-    lineStart = [p.x, p.y];
-    isLineDrawing = true;
-    previewLine = new fabric.Line([p.x, p.y, p.x, p.y], {
-      stroke: strokeColor, strokeWidth: 3,
-      selectable: false, evented: false,
-      strokeLineCap: 'round'
-    });
-    cvs.add(previewLine);
-
+    lineStart = p;
+    curPts = [p, p];
   } else if (tool === 'eraser') {
-    // findTarget 으로 가장 위 객체 클릭 감지
-    var target = cvs.findTarget(opt.e, false);
-    if (target) {
-      var idx = drawn.findIndex(function(d) { return d.obj === target; });
-      if (idx !== -1) drawn.splice(idx, 1);
-      undoStack = undoStack.filter(function(u) { return u !== target; });
-      cvs.remove(target);
-      cvs.renderAll();
-      sendData();
-    }
+    eraseNear(p);
+    isDown = false;
   }
-}
+});
 
-function onMove(opt) {
-  if (!cvs) return;
-  if (tool === 'pencil' && cvs.isDrawingMode) {
-    var p = cvs.getPointer(opt.e);
-    curPathPts.push([p.x, p.y]);
-  } else if (tool === 'line' && isLineDrawing && previewLine) {
-    var p = cvs.getPointer(opt.e);
-    previewLine.set({ x2: p.x, y2: p.y });
-    cvs.renderAll();
+canvas.addEventListener('mousemove', function(e) {
+  if (!isDown) return;
+  var p = getPos(e);
+  if (tool === 'pencil') {
+    curPts.push(p);
+    redraw();
+    drawStroke({ color: strokeColor, pts: curPts });
+  } else if (tool === 'line' && lineStart) {
+    curPts = [lineStart, p];
+    redraw();
+    drawStroke({ color: strokeColor, pts: curPts });
   }
-}
+});
 
-function onUp(opt) {
-  if (!cvs) return;
-  if (tool === 'line' && isLineDrawing) {
-    var p = cvs.getPointer(opt.e);
-    if (previewLine) {
-      previewLine.set({ x2: p.x, y2: p.y, selectable: false, evented: false });
-      cvs.renderAll();
-      drawn.push({ type: 'line', color: strokeColor,
-                   points: [lineStart, [p.x, p.y]], obj: previewLine });
-      undoStack.push(previewLine);
-      previewLine = null;
-      sendData();
-    }
-    isLineDrawing = false;
+canvas.addEventListener('mouseup', function(e) {
+  if (!isDown) return;
+  isDown = false;
+  var p = getPos(e);
+  if (tool === 'pencil' && curPts.length >= 2) {
+    strokes.push({ type: 'path', color: strokeColor, pts: curPts.slice() });
+    sendData();
+  } else if (tool === 'line' && lineStart) {
+    strokes.push({ type: 'line', color: strokeColor, pts: [lineStart, p] });
     lineStart = null;
-  }
-}
-
-function onPathCreated(opt) {
-  var fp = opt.path;
-  fp.set({ stroke: strokeColor, selectable: false, evented: false });
-
-  // 좌표 추출 (calcTransformMatrix 사용 → 캔버스 절대 좌표)
-  var pts = [];
-  try {
-    var mat = fp.calcTransformMatrix();
-    fp.path.forEach(function(cmd) {
-      if (cmd.length >= 3 && ['M','L','Q','C'].includes(cmd[0])) {
-        var lx = cmd[cmd.length - 2];
-        var ly = cmd[cmd.length - 1];
-        var tp = fabric.util.transformPoint({ x: lx, y: ly }, mat);
-        pts.push([Math.round(tp.x * 10) / 10, Math.round(tp.y * 10) / 10]);
-      }
-    });
-  } catch(e) {}
-
-  // 변환 실패 시 마우스 캡처 포인트로 폴백
-  if (pts.length < 2 && curPathPts.length >= 2) {
-    pts = curPathPts.slice();
-  }
-
-  if (pts.length >= 2) {
-    drawn.push({ type: 'path', color: strokeColor, points: pts, obj: fp });
-    undoStack.push(fp);
     sendData();
   }
-  curPathPts = [];
+  curPts = [];
+  redraw();
+});
+
+canvas.addEventListener('mouseleave', function() {
+  if (isDown && tool === 'pencil' && curPts.length >= 2) {
+    strokes.push({ type: 'path', color: strokeColor, pts: curPts.slice() });
+    sendData();
+  }
+  isDown = false; curPts = []; lineStart = null;
+  redraw();
+});
+
+// ── 터치 지원 ────────────────────────────────────────────────────
+canvas.addEventListener('touchstart', function(e) {
+  e.preventDefault();
+  canvas.dispatchEvent(new MouseEvent('mousedown',
+    { clientX: e.touches[0].clientX, clientY: e.touches[0].clientY }));
+}, { passive: false });
+canvas.addEventListener('touchmove', function(e) {
+  e.preventDefault();
+  canvas.dispatchEvent(new MouseEvent('mousemove',
+    { clientX: e.touches[0].clientX, clientY: e.touches[0].clientY }));
+}, { passive: false });
+canvas.addEventListener('touchend', function(e) {
+  e.preventDefault();
+  canvas.dispatchEvent(new MouseEvent('mouseup', {}));
+}, { passive: false });
+
+// ── 지우개 ──────────────────────────────────────────────────────
+function ptSegDist(p, a, b) {
+  var dx = b[0]-a[0], dy = b[1]-a[1];
+  var len2 = dx*dx + dy*dy;
+  if (len2 === 0) return Math.hypot(p[0]-a[0], p[1]-a[1]);
+  var t = Math.max(0, Math.min(1, ((p[0]-a[0])*dx + (p[1]-a[1])*dy) / len2));
+  return Math.hypot(p[0]-a[0]-t*dx, p[1]-a[1]-t*dy);
 }
 
-// ── 데이터 전송 ─────────────────────────────────────────────────
-function sendData() {
-  var lines = drawn.map(function(d) {
-    return { type: d.type, stroke: d.color, points: d.points };
+function strokeDist(s, p) {
+  var mn = Infinity;
+  for (var i = 0; i < s.pts.length-1; i++) {
+    var d = ptSegDist(p, s.pts[i], s.pts[i+1]);
+    if (d < mn) mn = d;
+  }
+  return mn;
+}
+
+function eraseNear(p) {
+  var thr = 12, bestIdx = -1, bestDist = thr;
+  strokes.forEach(function(s, i) {
+    var d = strokeDist(s, p);
+    if (d < bestDist) { bestDist = d; bestIdx = i; }
   });
-  sendValue({ lines: lines, width: W, height: H });
+  if (bestIdx >= 0) {
+    strokes.splice(bestIdx, 1);
+    redraw();
+    sendData();
+  }
 }
 
-// ── 도구 / 색상 제어 ────────────────────────────────────────────
+// ── 도구 / 색상 ──────────────────────────────────────────────────
 function setTool(t) {
   tool = t;
-  applyTool();
-  updateBtns();
-}
-
-function applyTool() {
-  if (!cvs) return;
-  if (tool === 'pencil') {
-    cvs.isDrawingMode = true;
-    cvs.selection = false;
-    cvs.freeDrawingBrush.color = strokeColor;
-    cvs.freeDrawingBrush.width = 3;
-    cvs.defaultCursor = 'crosshair';
-  } else if (tool === 'line') {
-    cvs.isDrawingMode = false;
-    cvs.selection = false;
-    cvs.defaultCursor = 'crosshair';
-  } else if (tool === 'eraser') {
-    cvs.isDrawingMode = false;
-    cvs.selection = false;
-    cvs.defaultCursor = 'pointer';
-  }
+  canvas.style.cursor = (t === 'eraser') ? 'cell' : 'crosshair';
+  ['pencil','line','eraser'].forEach(function(x) {
+    document.getElementById('t-'+x).className =
+      'btn' + (x === t ? ' on' : '');
+  });
 }
 
 function setColor(c) {
   strokeColor = (c === 'red') ? '#ff3333' : '#3388ff';
-  if (cvs && cvs.freeDrawingBrush) {
-    cvs.freeDrawingBrush.color = strokeColor;
-  }
-  updateBtns();
+  document.getElementById('c-red').className  = 'btn r' + (c === 'red'  ? ' on' : '');
+  document.getElementById('c-blue').className = 'btn b' + (c === 'blue' ? ' on' : '');
 }
 
 function undo() {
-  if (!cvs || undoStack.length === 0) return;
-  var last = undoStack.pop();
-  drawn = drawn.filter(function(d) { return d.obj !== last; });
-  cvs.remove(last);
-  cvs.renderAll();
+  if (strokes.length === 0) return;
+  strokes.pop();
+  redraw();
   sendData();
 }
 
 function clearAll() {
-  if (!cvs) return;
-  cvs.getObjects().forEach(function(o) { cvs.remove(o); });
-  drawn = []; undoStack = [];
-  cvs.renderAll();
+  strokes = [];
+  redraw();
   sendData();
 }
 
-function updateBtns() {
-  ['pencil','line','eraser'].forEach(function(t) {
-    var el = document.getElementById('t-' + t);
-    if (el) { el.className = 'btn' + (t === tool ? ' on' : ''); }
+// ── 데이터 전송 ──────────────────────────────────────────────────
+function sendData() {
+  var lines = strokes.map(function(s) {
+    return { type: s.type, stroke: s.color, points: s.pts };
   });
-  var r = document.getElementById('c-red');
-  var b = document.getElementById('c-blue');
-  if (r) r.className = 'btn r' + (strokeColor === '#ff3333' ? ' on' : '');
-  if (b) b.className = 'btn b' + (strokeColor === '#3388ff' ? ' on' : '');
+  sendValue({ lines: lines, width: W, height: H });
 }
 
 // ── 키보드 단축키 ────────────────────────────────────────────────
