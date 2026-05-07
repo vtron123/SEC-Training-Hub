@@ -3421,8 +3421,77 @@ with tab4:
             pass
         return profiles if profiles else None
 
+    # ────────────────────────────────────────────────────────────────
+    # 형상 기술자 (Shape Descriptor) — 에지 방향 히스토그램
+    # ────────────────────────────────────────────────────────────────
+    _SHAPE_H      = 64
+    _SHAPE_W      = 256
+    _SHAPE_ORIENT = 9
+    _SHAPE_ZONES  = 4
+
+    def _compute_shape_desc(arr_gray):
+        """업로드 이미지 → 에지 방향 히스토그램 기술자
+        - 수직 탭: 수직 에지(~90도) 집중
+        - 꺾인 탭: 에지 각도 분산
+        """
+        from scipy.ndimage import sobel as _sobel_nd2
+        try:
+            H, W = arr_gray.shape
+            roi = arr_gray[int(H*0.05):int(H*0.90), :]
+            rh, rw = roi.shape
+            # 가로가 매우 긴 경우 중앙 크롭
+            if rw > rh * 5:
+                cx = rw // 2
+                hw = min(rh * 3, rw // 2)
+                roi = roi[:, max(0, cx-hw):cx+hw]
+            pil = _PILImage.fromarray(roi).resize((_SHAPE_W, _SHAPE_H), _PILImage.LANCZOS)
+            a = _np.array(pil, dtype=_np.float64)
+            gx  = _sobel_nd2(a, axis=1)
+            gy  = _sobel_nd2(a, axis=0)
+            mag = _np.sqrt(gx**2 + gy**2)
+            ori = _np.degrees(_np.arctan2(_np.abs(gy), _np.abs(gx) + 1e-8))  # 0~90
+            bins = _np.linspace(0, 90, _SHAPE_ORIENT + 1)
+            desc = []
+            zones = [(0, _SHAPE_H)] + [
+                (int(_SHAPE_H * i / _SHAPE_ZONES), int(_SHAPE_H * (i+1) / _SHAPE_ZONES))
+                for i in range(_SHAPE_ZONES)
+            ]
+            for y1, y2 in zones:
+                hist, _ = _np.histogram(ori[y1:y2, :].ravel(), bins=bins,
+                                        weights=mag[y1:y2, :].ravel())
+                s = hist.sum() + 1e-8
+                desc.extend((hist / s).tolist())
+            return _np.array(desc, dtype=float)
+        except Exception:
+            return None
+
+    def _cosine_sim(a, b):
+        a = _np.array(a, dtype=float)
+        b = _np.array(b, dtype=float)
+        return float(_np.dot(a, b) / (_np.linalg.norm(a) * _np.linalg.norm(b) + 1e-8))
+
+    def _rank_by_shape(shape_desc, db):
+        """형상 기술자 코사인 유사도 기반 랭킹 (주력 매칭)"""
+        if shape_desc is None or db is None:
+            return []
+        scores = []
+        for mname, mdata in db["machines"].items():
+            em   = mdata.get("elec_mean", {})
+            db_s = em.get("shape_desc_mean")
+            if not db_s:
+                continue
+            sim = _cosine_sim(shape_desc, db_s)
+            scores.append((mname, round(float(sim), 4),
+                           mdata.get("cell_type", "?"), {}))
+        scores.sort(key=lambda x: x[1], reverse=True)
+        if scores and scores[0][1] > 0:
+            top_v = scores[0][1]
+            scores = [(m, round(min(s/top_v,1.0)*0.97, 4), ct, vc)
+                      for m, s, ct, vc in scores]
+        return scores[:10]
+
     def _dtw_similarity(q_prof, db_prof, max_dist=30.0):
-        """DTW 거리 → 0~1 유사도"""
+        """DTW 거리 → 0~1 유사도 (보조)"""
         if not _dtw_ok or q_prof is None or db_prof is None:
             return 0.5
         try:
@@ -3434,62 +3503,25 @@ with tab4:
         except Exception:
             return 0.5
 
-    def _fft_similarity(q_prof, db_prof):
-        """FFT 주파수 유사도 — 탭 간격(주기) 비교"""
-        try:
-            q = _norm_resample(q_prof)
-            d = _np.array(db_prof, dtype=float)
-            # DC 제거 후 주파수 스펙트럼
-            fq = _np.abs(_np.fft.rfft(q))[1:]
-            fd = _np.abs(_np.fft.rfft(d))[1:]
-            # 각각 정규화
-            fq = fq / (_np.max(fq) + 1e-6)
-            fd = fd / (_np.max(fd) + 1e-6)
-            # 코사인 유사도
-            cos = float(_np.dot(fq, fd) / (_np.linalg.norm(fq) * _np.linalg.norm(fd) + 1e-6))
-            return max(0.0, cos)
-        except Exception:
-            return 0.5
-
-    def _combined_similarity(q_prof, db_prof):
-        """DTW 40% + FFT 60% 혼합 유사도"""
-        dtw_s = _dtw_similarity(q_prof, db_prof)
-        fft_s = _fft_similarity(q_prof, db_prof)
-        return 0.4 * dtw_s + 0.6 * fft_s
-
     def _rank_by_profile(query_profiles, db):
-        """드로잉 프로파일 → 장비별 유사도 랭킹 (DTW + FFT 혼합)"""
+        """드로잉 프로파일 → DTW 유사도 랭킹 (보조 매칭)"""
         if not query_profiles or db is None:
             return []
         scores = []
         for mname, mdata in db["machines"].items():
-            em = mdata.get("elec_mean", {})
-            db_h  = em.get("h_profile_mean")
-            db_ht = em.get("h_top_mean")
-            db_v  = em.get("v_profile_mean")
+            em   = mdata.get("elec_mean", {})
+            db_h = em.get("h_profile_mean")
+            db_ht= em.get("h_top_mean")
             if not db_h:
                 continue
             sims = []
             for _, color, prof in query_profiles:
-                # 색상 판별 수정: 빨강=#ff3333, 파랑=#3388ff
                 c = color.lower().replace("#", "")
-                is_red = c.startswith("ff")   # ff3333
-                if is_red:
-                    # 탭(빨강) → 상단 프로파일 (탭 끝 패턴)
-                    ref_h  = db_ht or db_h
-                    ref_v  = db_v  or db_h
-                else:
-                    # 극판(파랑) → 중앙 프로파일 (전극 본체 패턴)
-                    ref_h  = db_h
-                    ref_v  = db_v or db_h
-                # 수평/수직 방향 중 더 긴 쪽 선택해서 비교
-                sim_h = _combined_similarity(prof, ref_h)
-                sim_v = _combined_similarity(prof, ref_v) if ref_v else sim_h
-                sims.append(max(sim_h, sim_v))
+                ref = db_ht or db_h if c.startswith("ff") else db_h
+                sims.append(_dtw_similarity(prof, ref))
             avg_sim = _np.mean(sims) if sims else 0.5
             scores.append((mname, round(float(avg_sim), 4),
-                           mdata.get("cell_type", "?"),
-                           mdata.get("view_counts", {})))
+                           mdata.get("cell_type", "?"), {}))
         scores.sort(key=lambda x: x[1], reverse=True)
         if scores and scores[0][1] > 0:
             top_v = scores[0][1]
@@ -3695,10 +3727,26 @@ with tab4:
             _bar_colors = ["#a855f7","#6366f1","#8b5cf6"]
             _ct_icons   = {"cylindrical":"🔋","pouch":"📦","prismatic":"🔲","jig":"🔧"}
 
-            _results = _rank_by_profile(_q_profiles, _SCAN_DB)
+            # ★ 형상 기술자로 1차 매칭 (이미지 업로드만으로 가능)
+            _shape_desc = _compute_shape_desc(_arr_gray)
+            _shape_results = _rank_by_shape(_shape_desc, _SCAN_DB)
+
+            # 캔버스 선이 있으면 DTW 결과를 30% 가중합산, 없으면 형상만
+            if _q_profiles and _shape_results:
+                _profile_results = _rank_by_profile(_q_profiles, _SCAN_DB)
+                _prof_map  = {m: s for m, s, _, _ in _profile_results}
+                _results = [
+                    (m, round(0.7*s + 0.3*_prof_map.get(m, s), 4), ct, vc)
+                    for m, s, ct, vc in _shape_results
+                ]
+                _results.sort(key=lambda x: x[1], reverse=True)
+                _match_method = "형상 기술자 70% + 파형 DTW 30%"
+            else:
+                _results = _shape_results
+                _match_method = "형상 기술자 (에지 방향 히스토그램)"
 
             if not _results:
-                st.warning("선을 먼저 그려주세요. 선이 없으면 비교할 수 없습니다.")
+                st.warning("분석 실패: DB를 확인해주세요.")
             else:
                 _top3 = _results[:3]
                 _best_mname = _top3[0][0]
@@ -3736,7 +3784,7 @@ with tab4:
                         f'<div style="color:#64748b;font-size:10px">{_ct_lbl} · DB {_SCAN_DB.get("total_samples",0)}장 비교</div>'
                         '</div></div>'
                         f'<div style="color:#475569;font-size:9px;margin-top:4px">'
-                        f'파형 DTW 유사도 · 선 {len(_q_profiles) if _q_profiles else 0}개 기준</div>'
+                        f'🔍 {_match_method}</div>'
                         '</div>',
                         unsafe_allow_html=True)
 
