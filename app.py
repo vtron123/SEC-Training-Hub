@@ -3345,6 +3345,43 @@ with tab4:
 
     _SCAN_DB   = _load_scan_db_global()
     _MANIFEST  = _load_manifest_global()
+
+    # ── EfficientNet-B0 모델 (캐시 — 세션당 1회 로드) ──────────────────
+    @st.cache_resource(show_spinner="🧠 EfficientNet 모델 로딩 중...")
+    def _load_eff_model():
+        try:
+            import torch
+            import torchvision.transforms as tv_tf
+            import torchvision.models as tv_m
+            model = tv_m.efficientnet_b0(
+                weights=tv_m.EfficientNet_B0_Weights.IMAGENET1K_V1
+            )
+            model.classifier = torch.nn.Identity()
+            model.eval()
+            tf = tv_tf.Compose([
+                tv_tf.Resize((224, 224)),
+                tv_tf.ToTensor(),
+                tv_tf.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+            ])
+            return model, tf, True
+        except Exception:
+            return None, None, False
+
+    def _compute_embedding(arr_gray):
+        """업로드 이미지 → EfficientNet-B0 1280차원 L2정규화 임베딩"""
+        model, tf, ok = _load_eff_model()
+        if not ok or arr_gray is None:
+            return None
+        try:
+            import torch
+            img = _PILImage.fromarray(arr_gray, "L").convert("RGB")
+            tensor = tf(img).unsqueeze(0)
+            with torch.no_grad():
+                emb = model(tensor).squeeze(0).numpy()
+            norm = float(_np.linalg.norm(emb)) + 1e-8
+            return emb / norm
+        except Exception:
+            return None
     _N_POINTS  = 128   # 프로파일 정규화 포인트
 
     # ── 헬퍼 함수 ──
@@ -3480,6 +3517,68 @@ with tab4:
         if scores and scores[0][1] > 0:
             top_v = scores[0][1]
             scores = [(m, round(min(s/top_v,1.0)*0.97, 4), ct, vc)
+                      for m, s, ct, vc in scores]
+        return scores[:10]
+
+    def _rank_combined(emb, shape_desc, overhang_val, auto_profs, db):
+        """
+        종합 유사도 랭킹
+        임베딩 있을 때: 임베딩 60% + 에지형상 15% + 오버행 15% + DTW 10%
+        임베딩 없을 때: 에지형상 45% + 오버행 15% + DTW 40%
+        """
+        if db is None:
+            return []
+
+        use_emb = (emb is not None)
+
+        scores = []
+        for mname, mdata in db["machines"].items():
+            em = mdata.get("elec_mean", {})
+
+            # 1) EfficientNet 임베딩 코사인 유사도
+            db_emb = em.get("emb_mean")
+            if use_emb and db_emb:
+                e_sim = float(_np.dot(emb, _np.array(db_emb, dtype=_np.float32)))
+                e_sim = max(0.0, min(1.0, (e_sim + 1.0) / 2.0))  # [-1,1] → [0,1]
+            else:
+                e_sim = None
+
+            # 2) 에지 방향 히스토그램 형상 기술자
+            db_s = em.get("shape_desc_mean")
+            s_sim = _cosine_sim(shape_desc, db_s) if (shape_desc is not None and db_s) else 0.5
+
+            # 3) 오버행 유사도
+            oh_sim = _overhang_similarity(
+                overhang_val,
+                em.get("overhang_mean", 0.0),
+                em.get("overhang_std", 0.03)
+            ) if overhang_val is not None else 0.5
+
+            # 4) 프로파일 DTW 유사도 (보조)
+            db_h  = em.get("h_profile_mean")
+            db_ht = em.get("h_top_mean")
+            db_v  = em.get("v_profile_mean")
+            if auto_profs and db_h:
+                dtw_h  = _dtw_similarity(auto_profs["h_center"], db_h)
+                dtw_ht = _dtw_similarity(auto_profs["h_top"],    db_ht or db_h)
+                dtw_v  = _dtw_similarity(auto_profs["v_center"], db_v  or db_h)
+                dtw_sim = dtw_h * 0.5 + dtw_ht * 0.3 + dtw_v * 0.2
+            else:
+                dtw_sim = 0.5
+
+            # 가중 합산
+            if e_sim is not None:
+                total = e_sim * 0.60 + s_sim * 0.15 + oh_sim * 0.15 + dtw_sim * 0.10
+            else:
+                total = s_sim * 0.45 + oh_sim * 0.15 + dtw_sim * 0.40
+
+            scores.append((mname, round(float(total), 4),
+                           mdata.get("cell_type", "?"), {}))
+
+        scores.sort(key=lambda x: x[1], reverse=True)
+        if scores and scores[0][1] > 0:
+            top_v = scores[0][1]
+            scores = [(m, round(min(s / top_v, 1.0) * 0.97, 4), ct, vc)
                       for m, s, ct, vc in scores]
         return scores[:10]
 
@@ -3674,22 +3773,32 @@ with tab4:
             _bar_colors = ["#a855f7","#6366f1","#8b5cf6"]
             _ct_icons   = {"cylindrical":"🔋","pouch":"📦","prismatic":"🔲","jig":"🔧"}
 
-            # 1) 형상 기술자 (에지 방향 히스토그램) — 60%
-            _shape_desc    = _compute_shape_desc(_arr_gray)
-            _overhang_val  = _measure_overhang(_arr_gray)
-            _shape_results = _rank_by_shape(_shape_desc, _SCAN_DB, overhang_val=_overhang_val)
+            with st.spinner("🧠 형상 분석 중..."):
+                # 1) EfficientNet 임베딩 (딥러닝 — 주 매칭)
+                _emb          = _compute_embedding(_arr_gray)
+                # 2) 에지 방향 히스토그램 형상 기술자 (보조)
+                _shape_desc   = _compute_shape_desc(_arr_gray)
+                # 3) 오버행 측정
+                _overhang_val = _measure_overhang(_arr_gray)
+                # 4) DTW 프로파일 (보조)
+                _auto_profs   = _auto_extract_profiles(_arr_gray)
 
-            # 2) 자동 프로파일 DTW — 40%
-            _auto_profs    = _auto_extract_profiles(_arr_gray)
-            _prof_results  = _rank_by_profile(_auto_profs, _SCAN_DB)
-            _prof_map      = {m: s for m, s, _, _ in _prof_results}
+                # 종합 랭킹
+                _results = _rank_combined(
+                    _emb, _shape_desc, _overhang_val, _auto_profs, _SCAN_DB
+                )
 
-            _results = [
-                (m, round(0.6*s + 0.4*_prof_map.get(m, s), 4), ct, vc)
-                for m, s, ct, vc in _shape_results
-            ]
-            _results.sort(key=lambda x: x[1], reverse=True)
-            _match_method = f"형상 기술자 45% + 오버행 15% + 프로파일 DTW 40%  (오버행 {_overhang_val:.3f})"
+            _use_emb = (_emb is not None)
+            if _use_emb:
+                _match_method = (
+                    f"🧠 EfficientNet 임베딩 60% + 에지형상 15% + 오버행 15% + DTW 10%"
+                    f"  (오버행 {_overhang_val:.3f})"
+                )
+            else:
+                _match_method = (
+                    f"에지형상 45% + 오버행 15% + DTW 40%  (오버행 {_overhang_val:.3f})"
+                    f"  ⚠️ torch 없음"
+                )
 
             if not _results:
                 st.warning("분석 실패: DB를 확인해주세요.")
