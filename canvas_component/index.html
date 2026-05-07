@@ -77,7 +77,7 @@ var lastBgUrl = '';
 window.addEventListener('message', function(e) {
   var d = e.data;
   if (!d || !d.type) return;
-  if (d.type === 'streamlit:render') {
+  if (d.type === 'streamlit:render' || d.type === 'render') {
     var a = d.args || {};
     var bgUrl = a.bgUrl || '';
     var w = parseInt(a.width) || 700;
@@ -90,14 +90,28 @@ window.addEventListener('message', function(e) {
   }
 });
 
-window.parent.postMessage({ type: 'streamlit:componentReady', apiVersion: 1 }, '*');
+// isStreamlitMessage: true 가 Streamlit 컴포넌트 프로토콜 필수 필드
+window.parent.postMessage({
+  isStreamlitMessage: true,
+  type: 'streamlit:componentReady',
+  apiVersion: 1
+}, '*');
 
 function setFrameHeight(h) {
-  window.parent.postMessage({ type: 'streamlit:setFrameHeight', height: h }, '*');
+  window.parent.postMessage({
+    isStreamlitMessage: true,
+    type: 'streamlit:setFrameHeight',
+    height: h
+  }, '*');
 }
 
 function sendValue(val) {
-  window.parent.postMessage({ type: 'streamlit:setComponentValue', value: val }, '*');
+  window.parent.postMessage({
+    isStreamlitMessage: true,
+    type: 'streamlit:setComponentValue',
+    value: val,
+    dataType: 'json'
+  }, '*');
 }
 
 // ── 캔버스 초기화 ───────────────────────────────────────────────
@@ -113,17 +127,20 @@ function initCanvas(bgUrl, w, h) {
     isDrawingMode: true
   });
 
-  // 배경 이미지 설정
+  // 배경 이미지 설정 (data URL이므로 crossOrigin 불필요)
   if (bgUrl) {
     fabric.Image.fromURL(bgUrl, function(img) {
-      if (!img || !img.width) return;
+      if (!img) return;
+      var iw = img.width || img.naturalWidth || w;
+      var ih = img.height || img.naturalHeight || h;
+      img.set({ selectable: false, evented: false });
       cvs.setBackgroundImage(img, cvs.renderAll.bind(cvs), {
-        scaleX: w / img.width,
-        scaleY: h / img.height,
+        scaleX: w / iw,
+        scaleY: h / ih,
         originX: 'left',
         originY: 'top'
       });
-    }, { crossOrigin: 'anonymous' });
+    });
   }
 
   // 브러시 설정
