@@ -3307,18 +3307,20 @@ with tab4:
     import base64 as _sc_b64
     import math as _sc_math
     import json as _sc_json
+    import os as _sc_os
+
+    # ── 커스텀 캔버스 컴포넌트 선언 ──
+    import streamlit.components.v1 as _sc_components
+    _CANVAS_COMP_DIR = _sc_os.path.join(
+        _sc_os.path.dirname(_sc_os.path.abspath(__file__)), "canvas_component")
+    _draw_canvas = _sc_components.declare_component(
+        "draw_canvas", path=_CANVAS_COMP_DIR)
 
     # ── 패키지 가용성 체크 ──
     try:
         import pydicom as _pydicom; _pydicom_ok = True
     except ImportError:
         _pydicom_ok = False
-
-    try:
-        from streamlit_drawable_canvas import st_canvas; _canvas_ok = True
-    except ImportError:
-        _canvas_ok = False
-        st.error("streamlit-drawable-canvas 패키지가 필요합니다. requirements.txt를 확인하세요.")
 
     try:
         from skimage.measure import profile_line as _profile_line; _skimage_ok = True
@@ -3368,54 +3370,56 @@ with tab4:
             idx = _np.linspace(0, len(normed)-1, n)
             return _np.interp(idx, _np.arange(len(normed)), normed)
 
-    def _extract_query_profile_from_path(path_data, arr_gray, canvas_w, canvas_h):
-        """캔버스 드로잉 경로 → 이미지 좌표 변환 → 프로파일 추출"""
-        if arr_gray is None:
+    def _extract_profiles_from_canvas(canvas_data, arr_gray):
+        """커스텀 캔버스 데이터 → 이미지 좌표 변환 → 프로파일 추출
+        canvas_data: {lines:[{type, stroke, points:[[x,y],...]}, ...], width, height}
+        """
+        if not canvas_data or arr_gray is None:
             return None
+        lines = canvas_data.get("lines", [])
+        if not lines:
+            return None
+        cw = canvas_data.get("width", 700) or 700
+        ch = canvas_data.get("height", 200) or 200
         H, W = arr_gray.shape
-        sx = W / canvas_w
-        sy = H / canvas_h
-        profile = []
-        if not path_data:
-            return None
+        sx = W / cw
+        sy = H / ch
+        profiles = []
         try:
-            objects = path_data.get("objects", [])
-            for obj in objects:
-                otype = obj.get("type", "")
-                if otype == "line":
-                    x1 = int((obj.get("left", 0) + obj.get("x1", 0)) * sx)
-                    y1 = int((obj.get("top",  0) + obj.get("y1", 0)) * sy)
-                    x2 = int((obj.get("left", 0) + obj.get("x2", 0)) * sx)
-                    y2 = int((obj.get("top",  0) + obj.get("y2", 0)) * sy)
-                    x1 = max(0, min(W-1, x1)); x2 = max(0, min(W-1, x2))
-                    y1 = max(0, min(H-1, y1)); y2 = max(0, min(H-1, y2))
+            for line_obj in lines:
+                pts = line_obj.get("points", [])
+                stroke = line_obj.get("stroke", "#ff3333")
+                ltype  = line_obj.get("type", "path")
+                if len(pts) < 2:
+                    continue
+                # 이미지 좌표로 변환
+                img_pts = [(max(0, min(W-1, int(p[0]*sx))),
+                            max(0, min(H-1, int(p[1]*sy)))) for p in pts]
+                if ltype == "line":
+                    # 직선: 시작~끝 profile_line
                     if _skimage_ok:
-                        prof = _profile_line(arr_gray, (y1, x1), (y2, x2), linewidth=7, mode='reflect')
+                        x1, y1 = img_pts[0]
+                        x2, y2 = img_pts[-1]
+                        prof = _profile_line(arr_gray, (y1,x1), (y2,x2),
+                                             linewidth=7, mode='reflect')
                         if len(prof) > 4:
-                            profile.append(("직선", obj.get("stroke","#ff0000"), prof))
-                elif otype == "path":
-                    path_str = obj.get("path", [])
-                    pts = []
-                    for cmd in path_str:
-                        if cmd and cmd[0] in ("M","L","Q","C") and len(cmd) >= 3:
-                            pts.append((float(cmd[-2]), float(cmd[-1])))
-                    if len(pts) < 2:
-                        continue
-                    xs = [int(p[0] * sx) for p in pts]
-                    ys = [int(p[1] * sy) for p in pts]
+                            profiles.append(("직선", stroke, _np.array(prof)))
+                else:
+                    # 펜슬: 포인트 체인 따라 픽셀 추출
                     prof_pts = []
-                    for i in range(len(pts)-1):
-                        n_seg = max(abs(xs[i+1]-xs[i]), abs(ys[i+1]-ys[i]), 1)
+                    for i in range(len(img_pts)-1):
+                        x1, y1 = img_pts[i]; x2, y2 = img_pts[i+1]
+                        n_seg = max(abs(x2-x1), abs(y2-y1), 1)
                         for t in _np.linspace(0, 1, n_seg):
-                            px = int(xs[i] + t*(xs[i+1]-xs[i]))
-                            py = int(ys[i] + t*(ys[i+1]-ys[i]))
-                            if 0<=px<W and 0<=py<H:
+                            px = int(x1 + t*(x2-x1))
+                            py = int(y1 + t*(y2-y1))
+                            if 0 <= px < W and 0 <= py < H:
                                 prof_pts.append(float(arr_gray[py, px]))
                     if len(prof_pts) > 4:
-                        profile.append(("펜슬", obj.get("stroke","#3366ff"), _np.array(prof_pts)))
+                        profiles.append(("펜슬", stroke, _np.array(prof_pts)))
         except Exception:
             pass
-        return profile if profile else None
+        return profiles if profiles else None
 
     def _dtw_similarity(q_prof, db_prof, max_dist=30.0):
         """DTW 거리 → 0~1 유사도"""
@@ -3582,63 +3586,26 @@ with tab4:
         _W, _H = _img_rgb.size
         _aspect = _W / (_H + 1e-6)
 
-        # ── 캔버스 설정 ──
-        _canvas_w = 700
+        # ── 캔버스 크기: 최대 900px 너비, 비율 유지 ──
+        _canvas_w = 900
         _canvas_h = max(80, int(_H * _canvas_w / _W))
 
-        # ── 도구 선택 ──
-        _tc1, _tc2, _tc3 = st.columns([3, 3, 2])
-        with _tc1:
-            _tool_sel = st.radio("✏️ 도구", ["📏 직선", "✏️ 펜슬"], horizontal=True, key="sc_tool")
-        with _tc2:
-            _color_sel = st.radio("🎨 색상", ["🔴 빨강 (탭)", "🔵 파랑 (극판)"], horizontal=True, key="sc_color")
-        with _tc3:
-            st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
-            _clear_btn = st.button("🗑️ 초기화", use_container_width=True, key="sc_clear")
-
-        _drawing_mode  = "line" if "직선" in _tool_sel else "freedraw"
-        _stroke_color  = "#ff3333" if "빨강" in _color_sel else "#3388ff"
-        _stroke_w      = 3 if _drawing_mode == "line" else 4
-
-        # ── 캔버스 배경 이미지 준비 ──
+        # ── 이미지 → base64 data URL ──
         _canvas_bg = _img_rgb.resize((_canvas_w, _canvas_h), _PILImage.LANCZOS)
+        _bg_buf = _sc_io.BytesIO()
+        _canvas_bg.save(_bg_buf, format="JPEG", quality=88)
+        _bg_b64 = _sc_b64.b64encode(_bg_buf.getvalue()).decode()
+        _bg_data_url = f"data:image/jpeg;base64,{_bg_b64}"
 
-        # clear 버튼 → session_state 카운터로 key 제어
-        if _clear_btn:
-            st.session_state["sc_clear_cnt"] = st.session_state.get("sc_clear_cnt", 0) + 1
-        _clear_cnt = st.session_state.get("sc_clear_cnt", 0)
-        _canvas_key = f"sc_canvas_{_fkey}_{_clear_cnt}"
-
-        # ── 이미지 HTML 표시 (배경 이미지 확인용) ──
-        _b64_bg = _img_to_b64(_canvas_bg, max_w=_canvas_w)
-        st.markdown(
-            f'<div style="border:2px solid #334155;border-bottom:none;border-radius:8px 8px 0 0;'
-            f'overflow:hidden;width:{_canvas_w}px;background:#000">'
-            f'<img src="data:image/jpeg;base64,{_b64_bg}" '
-            f'style="width:{_canvas_w}px;height:{_canvas_h}px;object-fit:fill;display:block">'
-            f'</div>',
-            unsafe_allow_html=True)
-        st.markdown(
-            '<div style="font-size:10px;color:#94a3b8;padding:2px 4px;margin-bottom:2px">'
-            '👆 업로드 이미지 — 아래 캔버스에서 경계선을 그으세요 (같은 축척)</div>',
-            unsafe_allow_html=True)
-
-        if not _canvas_ok:
-            st.warning("캔버스 패키지 없음 — 이미지만 표시합니다.")
-            _canvas_result = None
-        else:
-            _canvas_result = st_canvas(
-                fill_color="rgba(0,0,0,0)",
-                stroke_width=_stroke_w,
-                stroke_color=_stroke_color,
-                background_image=_canvas_bg,       # 혹시 작동 시 배경으로
-                background_color="rgba(0,0,50,0.85)",  # 반투명 다크 (미작동 시 fallback)
-                update_streamlit=True,
-                drawing_mode=_drawing_mode,
-                height=_canvas_h,
-                width=_canvas_w,
-                key=_canvas_key,
-            )
+        # ── 커스텀 캔버스 컴포넌트 ──
+        _canvas_key = f"sc_cv_{_fkey}"
+        _canvas_data = _draw_canvas(
+            bgUrl=_bg_data_url,
+            width=_canvas_w,
+            height=_canvas_h,
+            key=_canvas_key,
+            default=None,
+        )
 
         # DICOM 헤더
         if _dcm_meta:
@@ -3648,7 +3615,7 @@ with tab4:
                 for k, v in _dcm_meta.items()
             )
             st.markdown(
-                '<div style="background:#0f172a;border-radius:12px;padding:10px 14px;margin-top:8px">'
+                '<div style="background:#0f172a;border-radius:12px;padding:10px 14px;margin-top:4px">'
                 '<div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;'
                 'text-transform:uppercase;margin-bottom:6px">🏷️ DICOM HEADER</div>'
                 f'<table style="width:100%;border-collapse:collapse">{_dc_rows}</table></div>',
@@ -3662,9 +3629,8 @@ with tab4:
 
         # ── 프로파일 추출 ──
         _q_profiles = None
-        if _canvas_result is not None and _canvas_result.json_data:
-            _q_profiles = _extract_query_profile_from_path(
-                _canvas_result.json_data, _arr_gray, _canvas_w, _canvas_h)
+        if _canvas_data and isinstance(_canvas_data, dict):
+            _q_profiles = _extract_profiles_from_canvas(_canvas_data, _arr_gray)
 
         # ── 파형 시각화 ──
         if _q_profiles:
