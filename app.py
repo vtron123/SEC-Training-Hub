@@ -3424,8 +3424,39 @@ with tab4:
         b = _np.array(b, dtype=float)
         return float(_np.dot(a, b) / (_np.linalg.norm(a) * _np.linalg.norm(b) + 1e-8))
 
-    def _rank_by_shape(shape_desc, db):
-        """형상 기술자 코사인 유사도 기반 랭킹 (주력 매칭)"""
+    def _measure_overhang(arr_gray):
+        """오버행 비율 측정 (캐쏘드 시작~아노드 끝 구간 높이/전체 높이)"""
+        try:
+            from scipy.ndimage import sobel as _s  # 미사용, import 확인용
+            H, W = arr_gray.shape
+            body = arr_gray[int(H*0.20):int(H*0.95), :].astype(_np.float64)
+            bH   = body.shape[0]
+            if bH < 10:
+                return 0.0
+            edge_w  = max(6, int(W * 0.04))
+            left_v  = body[:, :edge_w].mean(axis=1)
+            right_v = body[:, -edge_w:].mean(axis=1)
+            avg_v   = (left_v + right_v) / 2.0
+            bright_ref = float(_np.percentile(body, 70))
+            threshold  = bright_ref * 0.72
+            step_h = 0
+            for i in range(bH - 1, -1, -1):
+                if avg_v[i] < threshold:
+                    step_h += 1
+                else:
+                    break
+            return round(step_h / bH, 4)
+        except Exception:
+            return 0.0
+
+    def _overhang_similarity(q_val, db_mean, db_std):
+        """오버행 유사도: 가우시안 기반 (같을수록 1, 다를수록 0)"""
+        sigma = max(db_std, 0.03)   # 최소 spread
+        diff  = abs(q_val - db_mean)
+        return float(_sc_math.exp(-(diff**2) / (2 * sigma**2)))
+
+    def _rank_by_shape(shape_desc, db, overhang_val=None):
+        """형상 기술자 + 오버행 코사인 유사도 기반 랭킹"""
         if shape_desc is None or db is None:
             return []
         scores = []
@@ -3434,7 +3465,15 @@ with tab4:
             db_s = em.get("shape_desc_mean")
             if not db_s:
                 continue
-            sim = _cosine_sim(shape_desc, db_s)
+            shape_sim = _cosine_sim(shape_desc, db_s)
+            # 오버행 유사도 합산
+            if overhang_val is not None:
+                db_oh_m = em.get("overhang_mean", 0.0)
+                db_oh_s = em.get("overhang_std",  0.03)
+                oh_sim  = _overhang_similarity(overhang_val, db_oh_m, db_oh_s)
+                sim = shape_sim * 0.75 + oh_sim * 0.25
+            else:
+                sim = shape_sim
             scores.append((mname, round(float(sim), 4),
                            mdata.get("cell_type", "?"), {}))
         scores.sort(key=lambda x: x[1], reverse=True)
@@ -3637,7 +3676,8 @@ with tab4:
 
             # 1) 형상 기술자 (에지 방향 히스토그램) — 60%
             _shape_desc    = _compute_shape_desc(_arr_gray)
-            _shape_results = _rank_by_shape(_shape_desc, _SCAN_DB)
+            _overhang_val  = _measure_overhang(_arr_gray)
+            _shape_results = _rank_by_shape(_shape_desc, _SCAN_DB, overhang_val=_overhang_val)
 
             # 2) 자동 프로파일 DTW — 40%
             _auto_profs    = _auto_extract_profiles(_arr_gray)
@@ -3649,7 +3689,7 @@ with tab4:
                 for m, s, ct, vc in _shape_results
             ]
             _results.sort(key=lambda x: x[1], reverse=True)
-            _match_method = "형상 기술자 60% + 자동 프로파일 DTW 40%"
+            _match_method = f"형상 기술자 45% + 오버행 15% + 프로파일 DTW 40%  (오버행 {_overhang_val:.3f})"
 
             if not _results:
                 st.warning("분석 실패: DB를 확인해주세요.")
