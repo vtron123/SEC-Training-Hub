@@ -3309,23 +3309,11 @@ with tab4:
     import json as _sc_json
     import os as _sc_os
 
-    # ── 커스텀 캔버스 컴포넌트 선언 ──
-    import streamlit.components.v1 as _sc_components
-    _CANVAS_COMP_DIR = _sc_os.path.join(
-        _sc_os.path.dirname(_sc_os.path.abspath(__file__)), "canvas_component")
-    _draw_canvas = _sc_components.declare_component(
-        "draw_canvas", path=_CANVAS_COMP_DIR)
-
     # ── 패키지 가용성 체크 ──
     try:
         import pydicom as _pydicom; _pydicom_ok = True
     except ImportError:
         _pydicom_ok = False
-
-    try:
-        from skimage.measure import profile_line as _profile_line; _skimage_ok = True
-    except ImportError:
-        _skimage_ok = False
 
     try:
         from fastdtw import fastdtw as _fastdtw; _dtw_ok = True
@@ -3370,56 +3358,22 @@ with tab4:
             idx = _np.linspace(0, len(normed)-1, n)
             return _np.interp(idx, _np.arange(len(normed)), normed)
 
-    def _extract_profiles_from_canvas(canvas_data, arr_gray):
-        """커스텀 캔버스 데이터 → 이미지 좌표 변환 → 프로파일 추출
-        canvas_data: {lines:[{type, stroke, points:[[x,y],...]}, ...], width, height}
-        """
-        if not canvas_data or arr_gray is None:
+    def _auto_extract_profiles(arr_gray):
+        """이미지에서 자동으로 h/v 프로파일 추출 (build_scan_db와 동일 로직)"""
+        if arr_gray is None:
             return None
-        lines = canvas_data.get("lines", [])
-        if not lines:
-            return None
-        cw = canvas_data.get("width", 700) or 700
-        ch = canvas_data.get("height", 200) or 200
         H, W = arr_gray.shape
-        sx = W / cw
-        sy = H / ch
-        profiles = []
-        try:
-            for line_obj in lines:
-                pts = line_obj.get("points", [])
-                stroke = line_obj.get("stroke", "#ff3333")
-                ltype  = line_obj.get("type", "path")
-                if len(pts) < 2:
-                    continue
-                # 이미지 좌표로 변환
-                img_pts = [(max(0, min(W-1, int(p[0]*sx))),
-                            max(0, min(H-1, int(p[1]*sy)))) for p in pts]
-                if ltype == "line":
-                    # 직선: 시작~끝 profile_line
-                    if _skimage_ok:
-                        x1, y1 = img_pts[0]
-                        x2, y2 = img_pts[-1]
-                        prof = _profile_line(arr_gray, (y1,x1), (y2,x2),
-                                             linewidth=7, mode='reflect')
-                        if len(prof) > 4:
-                            profiles.append(("직선", stroke, _np.array(prof)))
-                else:
-                    # 펜슬: 포인트 체인 따라 픽셀 추출
-                    prof_pts = []
-                    for i in range(len(img_pts)-1):
-                        x1, y1 = img_pts[i]; x2, y2 = img_pts[i+1]
-                        n_seg = max(abs(x2-x1), abs(y2-y1), 1)
-                        for t in _np.linspace(0, 1, n_seg):
-                            px = int(x1 + t*(x2-x1))
-                            py = int(y1 + t*(y2-y1))
-                            if 0 <= px < W and 0 <= py < H:
-                                prof_pts.append(float(arr_gray[py, px]))
-                    if len(prof_pts) > 4:
-                        profiles.append(("펜슬", stroke, _np.array(prof_pts)))
-        except Exception:
-            pass
-        return profiles if profiles else None
+        f = arr_gray.astype(_np.float64)
+        h_center = f[int(H*0.40):int(H*0.60), :].mean(axis=0)
+        v_center = f[:, int(W*0.40):int(W*0.60)].mean(axis=1)
+        h_top    = f[int(H*0.05):int(H*0.20), :].mean(axis=0)
+        h_bot    = f[int(H*0.75):int(H*0.95), :].mean(axis=0)
+        return {
+            "h_center": h_center,
+            "v_center": v_center,
+            "h_top":    h_top,
+            "h_bot":    h_bot,
+        }
 
     # ────────────────────────────────────────────────────────────────
     # 형상 기술자 (Shape Descriptor) — 에지 방향 히스토그램
@@ -3503,23 +3457,22 @@ with tab4:
         except Exception:
             return 0.5
 
-    def _rank_by_profile(query_profiles, db):
-        """드로잉 프로파일 → DTW 유사도 랭킹 (보조 매칭)"""
-        if not query_profiles or db is None:
+    def _rank_by_profile(auto_profs, db):
+        """자동 추출 프로파일 → DTW+FFT 유사도 랭킹 (보조 매칭)"""
+        if not auto_profs or db is None:
             return []
         scores = []
         for mname, mdata in db["machines"].items():
-            em   = mdata.get("elec_mean", {})
-            db_h = em.get("h_profile_mean")
-            db_ht= em.get("h_top_mean")
+            em    = mdata.get("elec_mean", {})
+            db_h  = em.get("h_profile_mean")
+            db_ht = em.get("h_top_mean")
+            db_v  = em.get("v_profile_mean")
             if not db_h:
                 continue
-            sims = []
-            for _, color, prof in query_profiles:
-                c = color.lower().replace("#", "")
-                ref = db_ht or db_h if c.startswith("ff") else db_h
-                sims.append(_dtw_similarity(prof, ref))
-            avg_sim = _np.mean(sims) if sims else 0.5
+            sim_h  = _dtw_similarity(auto_profs["h_center"], db_h)
+            sim_ht = _dtw_similarity(auto_profs["h_top"],    db_ht or db_h)
+            sim_v  = _dtw_similarity(auto_profs["v_center"], db_v  or db_h)
+            avg_sim = (sim_h * 0.5 + sim_ht * 0.3 + sim_v * 0.2)
             scores.append((mname, round(float(avg_sim), 4),
                            mdata.get("cell_type", "?"), {}))
         scores.sort(key=lambda x: x[1], reverse=True)
@@ -3609,12 +3562,10 @@ with tab4:
     <div style="background:linear-gradient(135deg,#1e1b4b,#312e81);border-radius:18px;
     padding:20px 24px 16px;margin-bottom:20px;box-shadow:0 4px 24px rgba(0,0,0,0.25)">
       <div style="color:#a78bfa;font-size:10px;font-weight:700;letter-spacing:2px;
-      text-transform:uppercase;margin-bottom:6px">🔬 SAMPLE SCAN ANALYZER v2</div>
-      <div style="color:white;font-size:18px;font-weight:800;margin-bottom:4px">배터리 셀 파형 유사도 분석</div>
+      text-transform:uppercase;margin-bottom:6px">🔬 SAMPLE SCAN ANALYZER v3</div>
+      <div style="color:white;font-size:18px;font-weight:800;margin-bottom:4px">배터리 셀 형상 자동 분석</div>
       <div style="color:#94a3b8;font-size:11px">
-        X-RAY 이미지를 올리고 전극 경계에 선을 그으면 파형을 비교합니다<br>
-        <span style="color:#fcd34d">🔴 빨간선</span> = 탭 경계 &nbsp;|&nbsp;
-        <span style="color:#60a5fa">🔵 파란선</span> = 활물질(극판) 경계
+        X-RAY 이미지를 업로드하면 형상 기술자 + 자동 프로파일로 즉시 매칭합니다
       </div>
     </div>
     """, unsafe_allow_html=True)
@@ -3633,16 +3584,14 @@ with tab4:
           <div style="font-size:52px;margin-bottom:14px">🔬</div>
           <div style="font-size:14px;font-weight:700;color:#374151;margin-bottom:6px">이미지를 업로드해주세요</div>
           <div style="font-size:11px;color:#9ca3af;line-height:1.8">
-            DCM 또는 PNG/JPG 업로드 후 전극 경계선을 직접 그려 파형을 비교합니다<br>
-            <b>펜슬</b>로 자유롭게 또는 <b>직선</b>으로 경계를 지정하세요
+            DCM 또는 PNG/JPG 업로드 시 자동으로 형상 분석 및 장비 매칭이 시작됩니다
           </div>
         </div>""", unsafe_allow_html=True)
     else:
         # ── 이미지 로드 ──
         _fkey = f"{_sc_file.name}_{_sc_file.size}"
         if st.session_state.get("_sc_fkey") != _fkey:
-            st.session_state["_sc_fkey"] = _fkey
-            st.session_state["sc_done"]  = False
+            st.session_state["_sc_fkey"]   = _fkey
             st.session_state["sc_ref_idx"] = 0
 
         _img_rgb, _arr_gray, _dcm_meta = _load_img_from_file(_sc_file)
@@ -3650,31 +3599,19 @@ with tab4:
             st.error("이미지를 읽을 수 없습니다.")
             st.stop()
 
-        _W, _H = _img_rgb.size
-        _aspect = _W / (_H + 1e-6)
+        _W, _H   = _img_rgb.size
+        _aspect  = _W / (_H + 1e-6)
 
-        # ── 캔버스 크기: 최대 900px 너비, 비율 유지 ──
-        _canvas_w = 900
-        _canvas_h = max(80, int(_H * _canvas_w / _W))
+        # ── 업로드 이미지 표시 ──
+        st.markdown(
+            '<div style="background:#0f172a;border-radius:14px;padding:10px 14px 8px;margin-bottom:8px">'
+            '<div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;'
+            'text-transform:uppercase;margin-bottom:6px">📤 UPLOADED IMAGE</div>',
+            unsafe_allow_html=True)
+        _show_img(_img_rgb)
+        st.markdown('</div>', unsafe_allow_html=True)
 
-        # ── 이미지 → base64 data URL ──
-        _canvas_bg = _img_rgb.resize((_canvas_w, _canvas_h), _PILImage.LANCZOS)
-        _bg_buf = _sc_io.BytesIO()
-        _canvas_bg.save(_bg_buf, format="JPEG", quality=88)
-        _bg_b64 = _sc_b64.b64encode(_bg_buf.getvalue()).decode()
-        _bg_data_url = f"data:image/jpeg;base64,{_bg_b64}"
-
-        # ── 커스텀 캔버스 컴포넌트 ──
-        _canvas_key = f"sc_cv_{_fkey}"
-        _canvas_data = _draw_canvas(
-            bgUrl=_bg_data_url,
-            width=_canvas_w,
-            height=_canvas_h,
-            key=_canvas_key,
-            default=None,
-        )
-
-        # DICOM 헤더
+        # ── DICOM 헤더 ──
         if _dcm_meta:
             _dc_rows = "".join(
                 f'<tr><td style="color:#64748b;font-size:9px;padding:3px 10px 3px 0;white-space:nowrap">{k}</td>'
@@ -3682,67 +3619,33 @@ with tab4:
                 for k, v in _dcm_meta.items()
             )
             st.markdown(
-                '<div style="background:#0f172a;border-radius:12px;padding:10px 14px;margin-top:4px">'
+                '<div style="background:#0f172a;border-radius:12px;padding:10px 14px;margin-bottom:8px">'
                 '<div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;'
                 'text-transform:uppercase;margin-bottom:6px">🏷️ DICOM HEADER</div>'
                 f'<table style="width:100%;border-collapse:collapse">{_dc_rows}</table></div>',
                 unsafe_allow_html=True)
 
-        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
-
-        # ── 분석 버튼 ──
-        if st.button("🔍  파형 분석 시작", type="primary", use_container_width=True, key="sc_run"):
-            st.session_state["sc_done"] = True
-
-        # ── 프로파일 추출 ──
-        _q_profiles = None
-        if _canvas_data and isinstance(_canvas_data, dict):
-            _q_profiles = _extract_profiles_from_canvas(_canvas_data, _arr_gray)
-
-        # ── 파형 시각화 ──
-        if _q_profiles:
-            st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
-            st.markdown(
-                '<div style="background:#0f172a;border-radius:14px;padding:14px 18px;margin-bottom:8px">'
-                '<div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;'
-                'text-transform:uppercase;margin-bottom:10px">📈 추출된 파형 프로파일</div>',
-                unsafe_allow_html=True)
-            import altair as _alt
-            import pandas as _pd_sc
-            for _pi, (_ptype, _pcolor, _pdata) in enumerate(_q_profiles):
-                _pnorm = _norm_resample(_pdata)
-                _df_p  = _pd_sc.DataFrame({"x": range(len(_pnorm)), "y": _pnorm.tolist()})
-                _hex   = _pcolor if _pcolor.startswith("#") else "#ffffff"
-                _ch    = (_alt.Chart(_df_p).mark_line(color=_hex, strokeWidth=1.5)
-                          .encode(x=_alt.X("x", axis=_alt.Axis(title="위치 →", labelFontSize=8)),
-                                  y=_alt.Y("y", axis=_alt.Axis(title="밝기(정규화)", labelFontSize=8)))
-                          .properties(height=120, title=f"{_ptype} 파형 {_pi+1}"))
-                st.altair_chart(_ch, use_container_width=True)
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        # ── 유사도 분석 ──
-        if st.session_state.get("sc_done") and _SCAN_DB:
+        # ── 자동 분석 (업로드 즉시 실행) ──
+        if _SCAN_DB:
             _medals     = ["🥇","🥈","🥉"]
             _bar_colors = ["#a855f7","#6366f1","#8b5cf6"]
             _ct_icons   = {"cylindrical":"🔋","pouch":"📦","prismatic":"🔲","jig":"🔧"}
 
-            # ★ 형상 기술자로 1차 매칭 (이미지 업로드만으로 가능)
-            _shape_desc = _compute_shape_desc(_arr_gray)
+            # 1) 형상 기술자 (에지 방향 히스토그램) — 60%
+            _shape_desc    = _compute_shape_desc(_arr_gray)
             _shape_results = _rank_by_shape(_shape_desc, _SCAN_DB)
 
-            # 캔버스 선이 있으면 DTW 결과를 30% 가중합산, 없으면 형상만
-            if _q_profiles and _shape_results:
-                _profile_results = _rank_by_profile(_q_profiles, _SCAN_DB)
-                _prof_map  = {m: s for m, s, _, _ in _profile_results}
-                _results = [
-                    (m, round(0.7*s + 0.3*_prof_map.get(m, s), 4), ct, vc)
-                    for m, s, ct, vc in _shape_results
-                ]
-                _results.sort(key=lambda x: x[1], reverse=True)
-                _match_method = "형상 기술자 70% + 파형 DTW 30%"
-            else:
-                _results = _shape_results
-                _match_method = "형상 기술자 (에지 방향 히스토그램)"
+            # 2) 자동 프로파일 DTW — 40%
+            _auto_profs    = _auto_extract_profiles(_arr_gray)
+            _prof_results  = _rank_by_profile(_auto_profs, _SCAN_DB)
+            _prof_map      = {m: s for m, s, _, _ in _prof_results}
+
+            _results = [
+                (m, round(0.6*s + 0.4*_prof_map.get(m, s), 4), ct, vc)
+                for m, s, ct, vc in _shape_results
+            ]
+            _results.sort(key=lambda x: x[1], reverse=True)
+            _match_method = "형상 기술자 60% + 자동 프로파일 DTW 40%"
 
             if not _results:
                 st.warning("분석 실패: DB를 확인해주세요.")
@@ -3859,12 +3762,13 @@ with tab4:
                                     unsafe_allow_html=True)
                     st.markdown('</div>', unsafe_allow_html=True)
 
-                # ── 파형 비교 (DB 대표 프로파일 vs 쿼리) ──
-                if _q_profiles and _SCAN_DB:
+                # ── 자동 프로파일 비교 차트 ──
+                if _auto_profs and _SCAN_DB:
                     _ref_mdata = _SCAN_DB["machines"].get(_ref_mname, {})
                     _ref_em    = _ref_mdata.get("elec_mean", {})
                     _ref_h     = _ref_em.get("h_profile_mean")
                     _ref_ht    = _ref_em.get("h_top_mean")
+                    _ref_v     = _ref_em.get("v_profile_mean")
 
                     if _ref_h:
                         import altair as _alt2
@@ -3874,33 +3778,38 @@ with tab4:
                         st.markdown(
                             '<div style="background:#0f172a;border-radius:14px;padding:14px 18px">'
                             '<div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;'
-                            'text-transform:uppercase;margin-bottom:4px">🔄 파형 비교 — 내 이미지 vs DB 대표 파형</div>'
+                            'text-transform:uppercase;margin-bottom:4px">📈 자동 프로파일 비교</div>'
                             f'<div style="color:#475569;font-size:9px;margin-bottom:12px">'
-                            f'{_ref_mname} DB 평균 파형 ({_ref_em.get("profile_count",0)}장 평균)</div>',
+                            f'내 이미지 vs {_ref_mname} DB 평균 ({_ref_em.get("profile_count",0)}장)</div>',
                             unsafe_allow_html=True)
 
-                        for _pi, (_ptype, _pcolor, _pdata) in enumerate(_q_profiles):
-                            _qn = _norm_resample(_pdata).tolist()
-                            _dbref = _ref_ht if ("ff" in _pcolor.lower() and "3" not in _pcolor.lower()) else _ref_h
+                        _profile_pairs = [
+                            ("수평 중앙 프로파일 (H-Center)", _auto_profs["h_center"], _ref_h,  "#a78bfa", "#475569"),
+                            ("수평 상단 프로파일 (H-Top)",    _auto_profs["h_top"],    _ref_ht or _ref_h, "#34d399", "#475569"),
+                            ("수직 중앙 프로파일 (V-Center)", _auto_profs["v_center"], _ref_v  or _ref_h, "#60a5fa", "#475569"),
+                        ]
+
+                        for _ptitle, _q_raw, _db_ref, _qcol, _dcol in _profile_pairs:
+                            _qn  = _norm_resample(_q_raw).tolist()
+                            _dbn = list(_db_ref)
+                            _n   = min(len(_qn), len(_dbn), _N_POINTS)
                             _df_cmp = _pd_sc2.DataFrame({
-                                "x":     list(range(_N_POINTS)) * 2,
-                                "y":     _qn + list(_dbref),
-                                "종류":  [f"내 이미지 (선{_pi+1})"]*_N_POINTS + [f"DB {_ref_mname[:15]}"]*_N_POINTS,
+                                "x":    list(range(_n)) * 2,
+                                "y":    _qn[:_n] + _dbn[:_n],
+                                "종류": ["내 이미지"] * _n + [f"DB({_ref_mname[:12]})"] * _n,
                             })
-                            _hex = _pcolor if _pcolor.startswith("#") else "#ffffff"
                             _ch2 = (_alt2.Chart(_df_cmp)
                                     .mark_line(strokeWidth=1.5)
                                     .encode(
-                                        x=_alt2.X("x", axis=_alt2.Axis(title="위치 →", labelFontSize=8)),
+                                        x=_alt2.X("x", axis=_alt2.Axis(title="위치", labelFontSize=8)),
                                         y=_alt2.Y("y", axis=_alt2.Axis(title="정규화 밝기", labelFontSize=8)),
-                                        color=_alt2.Color("종류", scale=_alt2.Scale(
-                                            domain=[f"내 이미지 (선{_pi+1})", f"DB {_ref_mname[:15]}"],
-                                            range=[_hex, "#94a3b8"])),
-                                        strokeDash=_alt2.StrokeDash("종류", scale=_alt2.Scale(
-                                            domain=[f"내 이미지 (선{_pi+1})", f"DB {_ref_mname[:15]}"],
+                                        color=_alt2.Color("종류:N", scale=_alt2.Scale(
+                                            domain=["내 이미지", f"DB({_ref_mname[:12]})"],
+                                            range=[_qcol, _dcol])),
+                                        strokeDash=_alt2.StrokeDash("종류:N", scale=_alt2.Scale(
+                                            domain=["내 이미지", f"DB({_ref_mname[:12]})"],
                                             range=[[1,0],[4,2]])))
-                                    .properties(height=140,
-                                                title=f"{_ptype} 파형 vs DB 대표 파형"))
+                                    .properties(height=110, title=_ptitle))
                             st.altair_chart(_ch2, use_container_width=True)
 
                         st.markdown('</div>', unsafe_allow_html=True)
