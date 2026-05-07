@@ -1,4 +1,4 @@
-﻿import streamlit as st
+import streamlit as st
 import streamlit.components.v1 as _components
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
@@ -3300,996 +3300,526 @@ with tab5:
                 _news_cards(translated_anime, "애니/만화 소식을 불러올 수 없어요.")
 
 # ──────────────────────────────────────────────
-# TAB 4 — 샘플 스캔 분석
+# TAB 4 — 샘플 스캔 분석 (v2 — 라인 프로파일 방식)
 # ──────────────────────────────────────────────
 with tab4:
-    import hashlib as _hashlib
-    import json as _json
-    import math as _math
-    from PIL import Image as _PILImage, ImageFilter as _ImageFilter
-    import numpy as _np
-    import io as _io
+    import io as _sc_io
+    import base64 as _sc_b64
+    import math as _sc_math
+    import json as _sc_json
+
+    # ── 패키지 가용성 체크 ──
     try:
-        import pydicom as _pydicom
-        _pydicom_ok = True
+        import pydicom as _pydicom; _pydicom_ok = True
     except ImportError:
         _pydicom_ok = False
 
-    # ── scan_db.json 로드 (모듈 최상단 캐시 사용) ──
-    _SCAN_DB = _load_scan_db_global()
-
-    # ── cv2 지연 임포트 (Hu Moments용) ──
     try:
-        import cv2 as _cv2
-        _cv2_ok = True
-    except Exception:
-        _cv2_ok = False
+        from streamlit_drawable_canvas import st_canvas; _canvas_ok = True
+    except ImportError:
+        _canvas_ok = False
+        st.error("streamlit-drawable-canvas 패키지가 필요합니다. requirements.txt를 확인하세요.")
 
-    def _compute_hu(arr_u8):
-        """Canny → 최대 윤곽선 → Hu Moments 로그변환 7개"""
-        if not _cv2_ok:
+    try:
+        from skimage.measure import profile_line as _profile_line; _skimage_ok = True
+    except ImportError:
+        _skimage_ok = False
+
+    try:
+        from fastdtw import fastdtw as _fastdtw; _dtw_ok = True
+    except ImportError:
+        try:
+            from scipy.spatial.distance import euclidean as _euclidean
+            def _fastdtw(a, b, **kw):
+                import numpy as _np2
+                a, b = _np2.array(a), _np2.array(b)
+                n, m = len(a), len(b)
+                dtw = _np2.full((n+1, m+1), _np2.inf)
+                dtw[0, 0] = 0
+                for i in range(1, n+1):
+                    for j in range(1, m+1):
+                        cost = abs(float(a[i-1]) - float(b[j-1]))
+                        dtw[i,j] = cost + min(dtw[i-1,j], dtw[i,j-1], dtw[i-1,j-1])
+                return float(dtw[n,m]), []
+            _dtw_ok = True
+        except Exception:
+            _dtw_ok = False
+
+    try:
+        from scipy.signal import resample as _sp_resample; _scipy_ok = True
+    except ImportError:
+        _scipy_ok = False
+
+    import numpy as _np
+    from PIL import Image as _PILImage
+
+    _SCAN_DB   = _load_scan_db_global()
+    _MANIFEST  = _load_manifest_global()
+    _N_POINTS  = 128   # 프로파일 정규화 포인트
+
+    # ── 헬퍼 함수 ──
+    def _norm_resample(profile, n=_N_POINTS):
+        arr = _np.array(profile, dtype=float)
+        mu, sig = arr.mean(), arr.std() + 1e-6
+        normed = (arr - mu) / sig
+        if _scipy_ok:
+            return _sp_resample(normed, n)
+        else:
+            idx = _np.linspace(0, len(normed)-1, n)
+            return _np.interp(idx, _np.arange(len(normed)), normed)
+
+    def _extract_query_profile_from_path(path_data, arr_gray, canvas_w, canvas_h):
+        """캔버스 드로잉 경로 → 이미지 좌표 변환 → 프로파일 추출"""
+        if arr_gray is None:
+            return None
+        H, W = arr_gray.shape
+        sx = W / canvas_w
+        sy = H / canvas_h
+        profile = []
+        if not path_data:
             return None
         try:
-            blurred = _cv2.GaussianBlur(arr_u8, (5, 5), 0)
-            edges   = _cv2.Canny(blurred, 30, 100)
-            cnts, _ = _cv2.findContours(edges, _cv2.RETR_EXTERNAL, _cv2.CHAIN_APPROX_SIMPLE)
-            if not cnts:
-                return None
-            largest = max(cnts, key=_cv2.contourArea)
-            if _cv2.contourArea(largest) < 50:
-                return None
-            moms = _cv2.moments(largest)
-            hu   = _cv2.HuMoments(moms).flatten()
-            return [float(-_math.copysign(1.0, float(v)) * _math.log10(abs(float(v)) + 1e-10))
-                    for v in hu]
+            objects = path_data.get("objects", [])
+            for obj in objects:
+                otype = obj.get("type", "")
+                if otype == "line":
+                    x1 = int((obj.get("left", 0) + obj.get("x1", 0)) * sx)
+                    y1 = int((obj.get("top",  0) + obj.get("y1", 0)) * sy)
+                    x2 = int((obj.get("left", 0) + obj.get("x2", 0)) * sx)
+                    y2 = int((obj.get("top",  0) + obj.get("y2", 0)) * sy)
+                    x1 = max(0, min(W-1, x1)); x2 = max(0, min(W-1, x2))
+                    y1 = max(0, min(H-1, y1)); y2 = max(0, min(H-1, y2))
+                    if _skimage_ok:
+                        prof = _profile_line(arr_gray, (y1, x1), (y2, x2), linewidth=7, mode='reflect')
+                        if len(prof) > 4:
+                            profile.append(("직선", obj.get("stroke","#ff0000"), prof))
+                elif otype == "path":
+                    path_str = obj.get("path", [])
+                    pts = []
+                    for cmd in path_str:
+                        if cmd and cmd[0] in ("M","L","Q","C") and len(cmd) >= 3:
+                            pts.append((float(cmd[-2]), float(cmd[-1])))
+                    if len(pts) < 2:
+                        continue
+                    xs = [int(p[0] * sx) for p in pts]
+                    ys = [int(p[1] * sy) for p in pts]
+                    prof_pts = []
+                    for i in range(len(pts)-1):
+                        n_seg = max(abs(xs[i+1]-xs[i]), abs(ys[i+1]-ys[i]), 1)
+                        for t in _np.linspace(0, 1, n_seg):
+                            px = int(xs[i] + t*(xs[i+1]-xs[i]))
+                            py = int(ys[i] + t*(ys[i+1]-ys[i]))
+                            if 0<=px<W and 0<=py<H:
+                                prof_pts.append(float(arr_gray[py, px]))
+                    if len(prof_pts) > 4:
+                        profile.append(("펜슬", obj.get("stroke","#3366ff"), _np.array(prof_pts)))
         except Exception:
-            return None
+            pass
+        return profile if profile else None
 
-    def _hu_dist(hu_a, hu_b):
-        """Hu Moments 유클리드 거리 (처음 5개만, 잡음 많은 6~7번째 제외)"""
-        if hu_a is None or hu_b is None:
-            return None
-        return _math.sqrt(sum((a - b) ** 2 for a, b in zip(hu_a[:5], hu_b[:5])))
-
-    def _extract_elec_features_query(arr_u8):
-        """업로드 이미지에서 전극 형상 피처 추출 (build_scan_db_v3 동일 로직)"""
-        try:
-            H, W = arr_u8.shape
-            farr = arr_u8.astype(_np.float64)
-            v_prof = _np.mean(farr, axis=1)
-            h_prof = _np.mean(farr, axis=0)
-            def _fft_feat(profile):
-                n   = len(profile)
-                fft = _np.abs(_np.fft.rfft(profile - profile.mean()))
-                fft = fft[1:]
-                fft_n = fft / (fft.sum() + 1e-12)
-                dom_k = int(_np.argmax(fft_n)) + 1
-                return round(dom_k / n * 1000, 4), round(float(_np.sort(fft_n)[::-1][:5].sum()), 5)
-            v_freq, v_conc = _fft_feat(v_prof)
-            h_freq, h_conc = _fft_feat(h_prof)
-            bins = [0, 32, 64, 96, 128, 160, 192, 224, 256]
-            hist, _ = _np.histogram(arr_u8.ravel(), bins=bins)
-            hist_n = hist.astype(float) / (hist.sum() + 1e-12)
-            e_dark   = float((arr_u8 <  64).mean())
-            e_mid    = float(((arr_u8 >= 64) & (arr_u8 <= 192)).mean())
-            e_bright = float((arr_u8 > 192).mean())
-            v_grad  = _np.abs(_np.diff(v_prof))
-            thresh  = v_grad.mean() + v_grad.std()
-            bounds  = _np.where(v_grad > thresh)[0]
-            n_layers = len(bounds)
-            if n_layers > 2:
-                spacings = _np.diff(bounds).astype(float)
-                lp_norm = float(_np.mean(spacings)) / H
-                l_cv    = float(_np.std(spacings) / (_np.mean(spacings) + 1e-9))
-            else:
-                lp_norm, l_cv = 0.5, 1.0
-            gH, gW = max(H // 4, 1), max(W // 4, 1)
-            zm = [farr[gi*gH:min((gi+1)*gH,H), gj*gW:min((gj+1)*gW,W)].mean()
-                  for gi in range(4) for gj in range(4)]
-            zm_arr = _np.array(zm)
-            zone_var = float(zm_arr.var() / (zm_arr.mean() ** 2 + 1e-9))
-            return {"v_freq": v_freq, "h_freq": h_freq, "v_conc": v_conc, "h_conc": h_conc,
-                    "hist8": hist_n.tolist(), "e_bright": e_bright, "e_mid": e_mid,
-                    "e_dark": e_dark, "n_layers": n_layers, "lp_norm": lp_norm,
-                    "l_cv": l_cv, "zone_var": zone_var}
-        except Exception:
-            return None
-
-    def _elec_similarity(q_elec, db_elec_mean):
-        """전극 피처 유사도 계산 (0~1, 높을수록 유사)"""
-        if not q_elec or not db_elec_mean:
+    def _dtw_similarity(q_prof, db_prof, max_dist=30.0):
+        """DTW 거리 → 0~1 유사도"""
+        if not _dtw_ok or q_prof is None or db_prof is None:
             return 0.5
+        try:
+            q = _norm_resample(q_prof)
+            d = _np.array(db_prof, dtype=float)
+            dist, _ = _fastdtw(q, d, dist=lambda a,b: abs(a-b))
+            sim = _sc_math.exp(-dist / max_dist)
+            return float(sim)
+        except Exception:
+            return 0.5
+
+    def _rank_by_profile(query_profiles, db):
+        """드로잉 프로파일 → 장비별 DTW 유사도 랭킹"""
+        if not query_profiles or db is None:
+            return []
         scores = []
-        # 히스토그램 교차 (재료 구성 지문) — 가중치 높음
-        q_h8 = q_elec.get("hist8", [])
-        db_h8 = db_elec_mean.get("hist8_mean", [])
-        if q_h8 and db_h8 and len(q_h8) == len(db_h8):
-            hist_sim = float(sum(min(a, b) for a, b in zip(q_h8, db_h8)))
-            scores.append((hist_sim, 3.5))
-        # 재료 비율 (e_bright, e_mid, e_dark)
-        for key, w in [("e_bright", 2.0), ("e_mid", 2.5), ("e_dark", 2.0)]:
-            qv = q_elec.get(key, 0)
-            dm = db_elec_mean.get(key, {})
-            if isinstance(dm, dict):
-                mu  = dm.get("mu", 0)
-                sig = dm.get("sigma", 1) + 1e-6
-                z   = abs(qv - mu) / sig
-                sim = _math.exp(-0.5 * z * z)
-                scores.append((sim, w))
-        # 층 주기/균일도
-        for key, w in [("lp_norm", 2.0), ("l_cv", 1.5), ("n_layers", 1.5)]:
-            qv = q_elec.get(key, 0)
-            dm = db_elec_mean.get(key, {})
-            if isinstance(dm, dict):
-                mu  = dm.get("mu", 0)
-                sig = dm.get("sigma", 1) + 1e-6
-                z   = abs(qv - mu) / sig
-                sim = _math.exp(-0.5 * z * z)
-                scores.append((sim, w))
-        # FFT 에너지 집중도
-        for key, w in [("v_conc", 1.0), ("h_conc", 1.0), ("v_freq", 1.5), ("h_freq", 1.5)]:
-            qv = q_elec.get(key, 0)
-            dm = db_elec_mean.get(key, {})
-            if isinstance(dm, dict):
-                mu  = dm.get("mu", 0)
-                sig = dm.get("sigma", 1) + 1e-6
-                z   = abs(qv - mu) / sig
-                sim = _math.exp(-0.5 * z * z)
-                scores.append((sim, w))
-        # 공간 분산
-        qv = q_elec.get("zone_var", 0)
-        dm = db_elec_mean.get("zone_var", {})
-        if isinstance(dm, dict):
-            mu  = dm.get("mu", 0)
-            sig = dm.get("sigma", 1) + 1e-6
-            z   = abs(qv - mu) / sig
-            scores.append((_math.exp(-0.5 * z * z), 1.0))
-        if not scores:
-            return 0.5
-        total_w = sum(w for _, w in scores)
-        return sum(s * w for s, w in scores) / (total_w + 1e-9)
+        for mname, mdata in db["machines"].items():
+            em = mdata.get("elec_mean", {})
+            db_h  = em.get("h_profile_mean")
+            db_ht = em.get("h_top_mean")
+            db_v  = em.get("v_profile_mean")
+            if not db_h:
+                continue
+            sims = []
+            for _, color, prof in query_profiles:
+                # 색상에 따라 대조 프로파일 선택 (빨강=탭, 파랑=극판)
+                if "ff" in color.lower() and "3" not in color.lower():
+                    ref = db_ht or db_h
+                else:
+                    ref = db_h
+                sims.append(_dtw_similarity(prof, ref))
+            avg_sim = _np.mean(sims) if sims else 0.5
+            scores.append((mname, round(float(avg_sim), 4),
+                           mdata.get("cell_type", "?"),
+                           mdata.get("view_counts", {})))
+        scores.sort(key=lambda x: x[1], reverse=True)
+        if scores and scores[0][1] > 0:
+            top_v = scores[0][1]
+            scores = [(m, round(min(s/top_v,1.0)*0.97,4), ct, vc) for m,s,ct,vc in scores]
+        return scores[:10]
 
-    def _db_similarity_2tier(mean_b, std_b, edge_d, aspect, peaks_val, hu_q, db, elec_q=None):
-        """
-        3-Score 유사도 매칭
-        Score-A (20%): Hu Moments 외형 거리
-        Score-B (25%): 기본 통계 (mean/std/edge/asp/peaks) z-score
-        Score-C (55%): 전극 형상 피처 (에너지 분포, FFT 층 주기, 히스토그램)
-        """
-        if db is None:
-            return [], "DB 없음"
+    def _load_img_from_file(f):
+        """업로드 파일 → PIL Image(RGB), grayscale ndarray, DICOM meta dict"""
+        meta = {}
+        if f.name.lower().endswith(".dcm"):
+            if not _pydicom_ok:
+                return None, None, {}
+            raw = f.read(); f.seek(0)
+            try:
+                ds = _pydicom.dcmread(_sc_io.BytesIO(raw))
+                px = ds.pixel_array
+                mn, mx = float(px.min()), float(px.max())
+                px8 = ((px - mn) / (mx - mn + 1e-6) * 255).astype(_np.uint8) if mx > mn else _np.zeros_like(px, dtype=_np.uint8)
+                img = _PILImage.fromarray(px8, "L") if px8.ndim == 2 else _PILImage.fromarray(px8[:,:,:3])
+                for tag, lbl in [("KVP","관전압(kVp)"),("Manufacturer","제조사"),
+                                  ("ManufacturerModelName","모델명"),("SeriesDescription","시리즈"),
+                                  ("Modality","모달리티"),("Rows","행(px)"),("Columns","열(px)"),
+                                  ("PixelSpacing","픽셀간격(mm)"),("SliceThickness","슬라이스두께"),
+                                  ("BitsAllocated","비트깊이")]:
+                    try: meta[lbl] = str(getattr(ds, tag))
+                    except: pass
+            except Exception as e:
+                return None, None, {}
+        else:
+            img = _PILImage.open(f)
+        img_rgb  = img.convert("RGB")
+        img_gray = _np.array(img.convert("L"), dtype=_np.uint8)
+        return img_rgb, img_gray, meta
 
-        q_feats  = {"mean": mean_b, "std": std_b, "edge": edge_d, "asp": aspect, "peaks": peaks_val}
-        w_stats  = {"mean": 0.8, "std": 1.0, "edge": 1.5, "asp": 2.2, "peaks": 0.5}
-        machines = db["machines"]
-        has_elec = (elec_q is not None) and bool(db.get("elec_features"))
+    def _img_to_b64(pil_img, max_w=1200, quality=85):
+        w, h = pil_img.size
+        if w > max_w:
+            pil_img = pil_img.resize((max_w, int(h*max_w/w)), _PILImage.LANCZOS)
+        buf = _sc_io.BytesIO()
+        pil_img.save(buf, format="JPEG", quality=quality)
+        return _sc_b64.b64encode(buf.getvalue()).decode()
 
-        # ── Tier-1: Hu 거리 전체 정렬 → Top-14 후보 ──
-        t1 = []
-        for mname, mdata in machines.items():
-            hd = _hu_dist(hu_q, mdata.get("hu_mean"))
-            t1.append((mname, hd if hd is not None else 1e9))
-        t1.sort(key=lambda x: x[1])
-        top_n = 14 if has_elec else 10
-        top_candidates = [m for m, _ in t1[:top_n]]
+    def _show_img(pil_img, max_w=900):
+        b64 = _img_to_b64(pil_img, max_w=max_w)
+        st.markdown(
+            f'<img src="data:image/jpeg;base64,{b64}" '
+            'style="width:100%;height:auto;display:block;border-radius:8px">',
+            unsafe_allow_html=True)
 
-        # ── Tier-2: 결합 스코어 ──
-        t2 = []
-        for mname in top_candidates:
-            mdata  = machines[mname]
-            stats  = mdata.get("stats", {})
-            # Score-A: Hu 거리 (정규화)
-            hd = _hu_dist(hu_q, mdata.get("hu_mean"))
-            hd_norm = min(hd / 10.0, 1.0) if hd is not None else 0.5
-            score_a = 1.0 - hd_norm
-            # Score-B: 통계 z-score 거리
-            sd = sum(w * ((q_feats[f] - stats[f]["mu"]) / (stats[f]["sigma"] + 1e-6)) ** 2
-                     for f, w in w_stats.items() if f in stats)
-            sd_norm = sd / max(len(w_stats), 1)
-            score_b = _math.exp(-_math.tanh(sd_norm / 5.0) * 3.5)
-            # Score-C: 전극 형상 피처
-            if has_elec:
-                elec_m = mdata.get("elec_mean", {})
-                score_c = _elec_similarity(elec_q, elec_m)
-                combined = 0.20 * score_a + 0.25 * score_b + 0.55 * score_c
-            else:
-                score_c = 0.5
-                combined = 0.40 * score_a + 0.60 * score_b
-            t2.append((mname, round(combined, 4), mdata.get("cell_type", "?"),
-                       mdata.get("view_counts", {}), sd_norm, hd_norm, score_c))
-        t2.sort(key=lambda x: x[1], reverse=True)
+    def _get_ref_img(mname):
+        """참조 이미지 PIL 반환"""
+        import pathlib as _pl
+        script_dir = _pl.Path(__file__).resolve().parent
+        entry = _MANIFEST.get(mname, {}) if _MANIFEST else {}
+        folder_id = entry.get("folder_id") if isinstance(entry, dict) else entry
+        if not folder_id:
+            return None
+        for fname in ("0.jpg", "1.jpg"):
+            rp = script_dir / "ref_imgs" / str(folder_id) / fname
+            if rp.exists():
+                return _PILImage.open(rp).convert("RGB")
+        return None
 
-        # 정규화 (최고 → 0.97)
-        if t2 and t2[0][1] > 0:
-            top_v = t2[0][1]
-            t2 = [(m, round(min(s / top_v, 1.0) * 0.97, 4), ct, vc, sd, hd, ec)
-                  for m, s, ct, vc, sd, hd, ec in t2]
+    # ════════════════════════════════════════════════════════
+    # UI 시작
+    # ════════════════════════════════════════════════════════
 
-        mode = "전극형상+통계" if has_elec else "통계전용"
-        method = f"3-Score({mode}) · DB {db.get('total_samples', 0)}장"
-        return t2, method
-
-    # ── 헤더 ──
     st.markdown("""
     <div style="background:linear-gradient(135deg,#1e1b4b,#312e81);border-radius:18px;
-    padding:20px 24px 16px;margin-bottom:16px;box-shadow:0 4px 24px rgba(0,0,0,0.25)">
+    padding:20px 24px 16px;margin-bottom:20px;box-shadow:0 4px 24px rgba(0,0,0,0.25)">
       <div style="color:#a78bfa;font-size:10px;font-weight:700;letter-spacing:2px;
-      text-transform:uppercase;margin-bottom:6px">🔬 SAMPLE SCAN ANALYZER</div>
-      <div style="color:white;font-size:18px;font-weight:800;margin-bottom:4px">배터리 샘플 유사도 분석</div>
-      <div style="color:#94a3b8;font-size:11px">X-RAY 이미지를 업로드하면 가장 유사한 학습 모델을 찾아드립니다</div>
+      text-transform:uppercase;margin-bottom:6px">🔬 SAMPLE SCAN ANALYZER v2</div>
+      <div style="color:white;font-size:18px;font-weight:800;margin-bottom:4px">배터리 셀 파형 유사도 분석</div>
+      <div style="color:#94a3b8;font-size:11px">
+        X-RAY 이미지를 올리고 전극 경계에 선을 그으면 파형을 비교합니다<br>
+        <span style="color:#fcd34d">🔴 빨간선</span> = 탭 경계 &nbsp;|&nbsp;
+        <span style="color:#60a5fa">🔵 파란선</span> = 활물질(극판) 경계
+      </div>
     </div>
     """, unsafe_allow_html=True)
 
-    # ── 업로드 ──
-    _scan_file = st.file_uploader(
+    # ── 파일 업로드 ──
+    _sc_file = st.file_uploader(
         "📁 X-RAY 이미지 업로드 (PNG · JPG · BMP · TIFF · DCM)",
-        type=["png", "jpg", "jpeg", "bmp", "tif", "tiff", "dcm"],
-        key="scan_upload",
+        type=["png","jpg","jpeg","bmp","tif","tiff","dcm"],
+        key="scan_v2_upload"
     )
 
-    # 새 파일 업로드 시 이전 스캔 결과 초기화
-    if _scan_file is not None:
-        _fkey = f"{_scan_file.name}_{_scan_file.size}"
-        if st.session_state.get("_scan_fkey") != _fkey:
-            st.session_state["_scan_fkey"] = _fkey
-            st.session_state["scan_done"] = False
-            st.session_state["ref_selected_idx"] = 0
-
-    if _scan_file is None:
+    if _sc_file is None:
         st.markdown("""
         <div style="background:white;border-radius:18px;padding:60px 24px;
         text-align:center;box-shadow:0 2px 12px rgba(0,0,0,0.07);margin-top:8px">
           <div style="font-size:52px;margin-bottom:14px">🔬</div>
-          <div style="font-size:14px;font-weight:700;color:#374151;margin-bottom:6px">
-            이미지를 업로드해주세요</div>
-          <div style="font-size:11px;color:#9ca3af;line-height:1.7">
-            배터리 X-RAY 이미지(단면·측면)를 업로드하면<br>
-            기존 학습 데이터와 유사도를 비교해 드립니다
+          <div style="font-size:14px;font-weight:700;color:#374151;margin-bottom:6px">이미지를 업로드해주세요</div>
+          <div style="font-size:11px;color:#9ca3af;line-height:1.8">
+            DCM 또는 PNG/JPG 업로드 후 전극 경계선을 직접 그려 파형을 비교합니다<br>
+            <b>펜슬</b>로 자유롭게 또는 <b>직선</b>으로 경계를 지정하세요
           </div>
-        </div>
-        """, unsafe_allow_html=True)
+        </div>""", unsafe_allow_html=True)
     else:
-        # ── DCM 파일 처리 ──
-        _is_dcm = _scan_file.name.lower().endswith(".dcm")
-        _dicom_meta = {}
-        if _is_dcm:
-            if not _pydicom_ok:
-                st.error("pydicom 패키지가 설치되지 않았습니다. requirements.txt에 pydicom>=2.4.0을 추가하세요.")
-                st.stop()
-            _dcm_bytes = _scan_file.read()
-            _scan_file.seek(0)
-            try:
-                _ds = _pydicom.dcmread(_io.BytesIO(_dcm_bytes))
-                _px = _ds.pixel_array
-                _px_min, _px_max = float(_px.min()), float(_px.max())
-                if _px_max > _px_min:
-                    _px8 = ((_px - _px_min) / (_px_max - _px_min) * 255).astype(_np.uint8)
-                else:
-                    _px8 = _np.zeros(_px.shape, dtype=_np.uint8)
-                if _px8.ndim == 2:
-                    _img = _PILImage.fromarray(_px8, mode="L")
-                elif _px8.ndim == 3:
-                    _img = _PILImage.fromarray(_px8[:, :, :3])
-                else:
-                    st.error("지원하지 않는 DICOM 픽셀 배열 형식입니다.")
-                    st.stop()
-                # DICOM 메타데이터 수집
-                for _dcm_tag, _dcm_label in [
-                    ("KVP",                   "관전압 (kVp)"),
-                    ("Manufacturer",          "제조사"),
-                    ("ManufacturerModelName", "모델명"),
-                    ("SeriesDescription",     "시리즈"),
-                    ("Modality",              "모달리티"),
-                    ("Rows",                  "행 (px)"),
-                    ("Columns",               "열 (px)"),
-                    ("PixelSpacing",          "픽셀 간격"),
-                    ("SliceThickness",        "슬라이스 두께"),
-                    ("BitsAllocated",         "비트 깊이"),
-                ]:
-                    try:
-                        _dv = getattr(_ds, _dcm_tag)
-                        _dicom_meta[_dcm_label] = str(_dv)
-                    except AttributeError:
-                        pass
-            except Exception as _dcm_err:
-                st.error(f"DICOM 파일을 읽을 수 없습니다: {_dcm_err}")
-                st.stop()
+        # ── 이미지 로드 ──
+        _fkey = f"{_sc_file.name}_{_sc_file.size}"
+        if st.session_state.get("_sc_fkey") != _fkey:
+            st.session_state["_sc_fkey"] = _fkey
+            st.session_state["sc_done"]  = False
+            st.session_state["sc_ref_idx"] = 0
+
+        _img_rgb, _arr_gray, _dcm_meta = _load_img_from_file(_sc_file)
+        if _img_rgb is None:
+            st.error("이미지를 읽을 수 없습니다.")
+            st.stop()
+
+        _W, _H = _img_rgb.size
+        _aspect = _W / (_H + 1e-6)
+
+        # ── 캔버스 설정 ──
+        _canvas_w = 700
+        _canvas_h = max(80, int(_H * _canvas_w / _W))
+
+        # ── 도구 선택 ──
+        _tc1, _tc2, _tc3 = st.columns([3, 3, 2])
+        with _tc1:
+            _tool_sel = st.radio("✏️ 도구", ["📏 직선", "✏️ 펜슬"], horizontal=True, key="sc_tool")
+        with _tc2:
+            _color_sel = st.radio("🎨 색상", ["🔴 빨강 (탭)", "🔵 파랑 (극판)"], horizontal=True, key="sc_color")
+        with _tc3:
+            st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+            _clear_btn = st.button("🗑️ 초기화", use_container_width=True, key="sc_clear")
+
+        _drawing_mode  = "line" if "직선" in _tool_sel else "freedraw"
+        _stroke_color  = "#ff3333" if "빨강" in _color_sel else "#3388ff"
+        _stroke_w      = 2 if _drawing_mode == "line" else 3
+
+        # ── 드로잉 캔버스 ──
+        _canvas_bg = _img_rgb.resize((_canvas_w, _canvas_h), _PILImage.LANCZOS)
+        _canvas_key = f"sc_canvas_{_fkey}_{_clear_btn}"
+
+        if not _canvas_ok:
+            st.warning("캔버스 패키지 없음 — 이미지만 표시합니다.")
+            _show_img(_img_rgb)
+            _canvas_result = None
         else:
-            _img = _PILImage.open(_scan_file)
-
-        _img_rgb = _img.convert("RGB")
-        _img_gray = _img.convert("L")
-        _arr     = _np.array(_img_gray)
-        _w, _h   = _img.size
-
-        # ── 이미지 특성 계산 ──
-        _mean_b  = float(_np.mean(_arr))
-        _std_b   = float(_np.std(_arr))
-        _aspect  = _w / _h
-        _edges   = _np.array(_img_gray.filter(_ImageFilter.FIND_EDGES))
-        _edge_d  = float(_np.mean(_edges)) / 255.0
-        _circ    = min(_w, _h) / max(_w, _h)
-        # 히스토그램 피크 수
-        _hist_arr, _ = _np.histogram(_arr.astype(float), bins=32, range=(0, 255))
-        _hist_n = _hist_arr / (_hist_arr.sum() + 1e-6)
-        _peaks_val = sum(1 for i in range(1, len(_hist_n) - 1)
-                        if _hist_n[i] > _hist_n[i-1] and _hist_n[i] > _hist_n[i+1] and _hist_n[i] > 0.02)
-        # Hu Moments (형상 기반)
-        _arr_u8 = _np.clip(_arr, 0, 255).astype(_np.uint8)
-        _hu_query = _compute_hu(_arr_u8)
-        # 전극 형상 피처 (에너지 분포) 추출
-        _elec_q_arr = _arr_u8
-        if max(_w, _h) > 1024:
-            _scale = 1024 / max(_w, _h)
-            _elec_q_arr = _np.array(
-                _img_gray.resize((int(_w * _scale), int(_h * _scale)), _PILImage.LANCZOS),
-                dtype=_np.uint8
+            _canvas_result = st_canvas(
+                fill_color="rgba(0,0,0,0)",
+                stroke_width=_stroke_w,
+                stroke_color=_stroke_color,
+                background_image=_canvas_bg,
+                update_streamlit=True,
+                drawing_mode=_drawing_mode,
+                height=_canvas_h,
+                width=_canvas_w,
+                key=_canvas_key,
             )
-        _elec_query = _extract_elec_features_query(_elec_q_arr)
 
-        # ── 강제 색상 CSS (화이트 테마/다크 테마 모두 대응 + 파일 업로더 화이트) ──
-        # ── 스캔 버튼 ──
-        if st.button("🔍  스캔 시작", type="primary", use_container_width=True, key="scan_btn"):
-            st.session_state["scan_done"] = True
-
-        # ── 스캔 결과 사전 계산 ──
-        _medals = ["🥇", "🥈", "🥉"]
-        _top3_full = []
-        _top3      = []
-        _method    = ""
-        _ref_imgs_found = []
-        _ref_mname = ""
-        if st.session_state.get("scan_done") and _SCAN_DB:
-            _t2_results, _method = _db_similarity_2tier(
-                _mean_b, _std_b, _edge_d, _aspect, _peaks_val, _hu_query, _SCAN_DB,
-                elec_q=_elec_query
+        # DICOM 헤더
+        if _dcm_meta:
+            _dc_rows = "".join(
+                f'<tr><td style="color:#64748b;font-size:9px;padding:3px 10px 3px 0;white-space:nowrap">{k}</td>'
+                f'<td style="color:#e2e8f0;font-size:9px;font-weight:600;padding:3px 0">{v}</td></tr>'
+                for k, v in _dcm_meta.items()
             )
-            if _t2_results:
-                _top3_full = _t2_results[:3]
-                _top3      = [(r[0], r[1]) for r in _top3_full]
-            else:
-                _scores = []
-                _is_radial = 0.85 <= _aspect <= 1.15
-                for _mname in MACHINE_LIST[1:]:
-                    _s = 0.0
-                    if _is_radial and ("원통형" in _mname): _s += 0.25
-                    if 60 <= _mean_b <= 170: _s += 0.20
-                    if _std_b > 40: _s += 0.15
-                    if _edge_d > 0.04: _s += 0.10
-                    _h16 = int(_hashlib.md5((_mname + str(round(_mean_b, -1))).encode()).hexdigest()[:6], 16)
-                    _s += (_h16 / 16777215.0) * 0.30
-                    _scores.append((_mname, min(_s, 0.99)))
-                _scores.sort(key=lambda x: x[1], reverse=True)
-                _top3 = _scores[:3]
-                _top3_full = [(m, s, "?", {}, 0, 0) for m, s in _top3]
-                _method = "휴리스틱"
-            # 참조 이미지 경로 조회 ─ 선택된 Top-3 인덱스 기준
-            _ref_sel_idx = int(st.session_state.get("ref_selected_idx", 0))
-            if _ref_sel_idx >= len(_top3_full):
-                _ref_sel_idx = 0
-            _ref_mname = _top3_full[_ref_sel_idx][0] if _top3_full else ""
-            _upload_view = ("cross_section" if 0.65 <= _aspect <= 1.5
-                            else ("side" if _aspect > 2.0 else "other"))
-            if _ref_mname:
-                import pathlib as _pathlib
-                _script_dir = _pathlib.Path(__file__).resolve().parent
-                _manifest   = _load_manifest_global()
-                if _manifest:
-                    try:
-                        _mentry = _manifest.get(_ref_mname, {})
-                        # v3 manifest: {"folder_id":"04","views":{"cross_section":"0.jpg","side":"1.jpg"}}
-                        # v2 manifest fallback: 직접 폴더 id 문자열
-                        if isinstance(_mentry, dict):
-                            _folder_id = _mentry.get("folder_id")
-                            _view_files = _mentry.get("views", {})
-                            # 업로드 뷰타입에 맞는 파일 우선, fallback 순서
-                            _priority = [_upload_view, "cross_section", "side", "0"]
-                            _ref_file  = next(
-                                (v for k in _priority for k2, v in _view_files.items() if k2 == k),
-                                None
-                            )
-                            if _folder_id:
-                                if _ref_file:
-                                    _rp = _script_dir / "ref_imgs" / _folder_id / _ref_file
-                                    if _rp.exists():
-                                        _ref_imgs_found.append(str(_rp))
-                                # 두 번째 이미지도 추가 (다른 뷰)
-                                for _fname in ("0.jpg","1.jpg"):
-                                    _rp2 = _script_dir / "ref_imgs" / _folder_id / _fname
-                                    if _rp2.exists() and str(_rp2) not in _ref_imgs_found:
-                                        _ref_imgs_found.append(str(_rp2))
-                                        break
-                        else:
-                            # v2 fallback
-                            _folder_id = _mentry
-                            for _ri in range(2):
-                                _rp = _script_dir / "ref_imgs" / str(_folder_id) / f"{_ri}.jpg"
-                                if _rp.exists():
-                                    _ref_imgs_found.append(str(_rp))
-                    except Exception:
-                        pass
-
-        # ════════════════════════════════════════════
-        # ── 메인 블록 컨테이너 ──
-        # ════════════════════════════════════════════
-
-        # ── Row 1: 이미지 나란히 ──
-        _sc_l, _sc_r = st.columns(2)
-
-        with _sc_l:
-            st.markdown("""<div style="background:#0f172a;border-radius:16px;padding:12px 14px 8px">
-              <div style="color:#64748b;font-size:9px;font-weight:700;letter-spacing:2px;
-              text-transform:uppercase;margin-bottom:8px">📤 UPLOADED IMAGE</div>""",
-              unsafe_allow_html=True)
-            try:
-                import io as _io2u, base64 as _b64u
-                _uimg_disp = _img_rgb.copy()
-                _uw, _uh = _uimg_disp.size
-                _umax = 1600
-                if max(_uw, _uh) > _umax:
-                    _us = _umax / max(_uw, _uh)
-                    _uimg_disp = _uimg_disp.resize((int(_uw * _us), int(_uh * _us)), Image.LANCZOS)
-                _ubuf = _io2u.BytesIO()
-                _uimg_disp.save(_ubuf, format="JPEG", quality=85)
-                _ub64 = _b64u.b64encode(_ubuf.getvalue()).decode()
-                st.markdown(
-                    f'<img src="data:image/jpeg;base64,{_ub64}" '
-                    'style="width:100%;height:auto;display:block;border-radius:8px">',
-                    unsafe_allow_html=True
-                )
-            except Exception:
-                st.image(_img_rgb, use_column_width=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-
-            # ── DCM 헤더 정보 표시 ──
-            if _dicom_meta:
-                _dcm_rows = "".join(
-                    f'<tr>'
-                    f'<td style="color:#64748b;font-size:9px;padding:4px 10px 4px 0;white-space:nowrap">{_dk}</td>'
-                    f'<td style="color:#e2e8f0;font-size:9px;padding:4px 0;font-weight:600">{_dv}</td>'
-                    f'</tr>'
-                    for _dk, _dv in _dicom_meta.items()
-                )
-                st.markdown(
-                    '<div style="background:#0f172a;border-radius:12px;padding:12px 16px;margin-top:8px">'
-                    '<div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px">🏷️ DICOM HEADER</div>'
-                    f'<table style="width:100%;border-collapse:collapse">{_dcm_rows}</table>'
-                    '</div>',
-                    unsafe_allow_html=True
-                )
-
-        with _sc_r:
-            _ref_sel_lbl = f"{_medals[_ref_sel_idx]} " if _top3_full and _ref_sel_idx < len(_medals) else ""
-            _ref_lbl = f"📷 참조 — {_ref_sel_lbl}{_ref_mname[:28]}" if _ref_mname else "📷 참조 이미지"
-            st.markdown(f"""<div style="background:#0f172a;border-radius:16px;padding:12px 14px 8px">
-              <div style="color:#64748b;font-size:9px;font-weight:700;letter-spacing:2px;
-              text-transform:uppercase;margin-bottom:8px">{_ref_lbl}</div>""",
-              unsafe_allow_html=True)
-            if not st.session_state.get("scan_done"):
-                st.markdown("""<div style="min-height:260px;display:flex;align-items:center;
-                justify-content:center;color:#334155;font-size:24px;text-align:center">🎯</div>""",
+            st.markdown(
+                '<div style="background:#0f172a;border-radius:12px;padding:10px 14px;margin-top:8px">'
+                '<div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;'
+                'text-transform:uppercase;margin-bottom:6px">🏷️ DICOM HEADER</div>'
+                f'<table style="width:100%;border-collapse:collapse">{_dc_rows}</table></div>',
                 unsafe_allow_html=True)
-            elif _ref_imgs_found:
-                try:
-                    import io as _io2, base64 as _b64mod
-                    _rimg = Image.open(_ref_imgs_found[0]).convert("RGB")
-                    _rw, _rh = _rimg.size
-                    # 최대 1600px 제한
-                    _rmax = 1600
-                    if max(_rw, _rh) > _rmax:
-                        _rs = _rmax / max(_rw, _rh)
-                        _rimg = _rimg.resize((int(_rw * _rs), int(_rh * _rs)), Image.LANCZOS)
-                        _rw, _rh = _rimg.size
-                    _rbuf = _io2.BytesIO()
-                    _rimg.save(_rbuf, format="JPEG", quality=85)
-                    # 종횡비가 너무 크면 중앙 크롭 (업로드 이미지 종횡비 기준)
-                    _rasp = _rw / (_rh + 1e-6)
-                    _target_asp = min(_rasp, max(_aspect, 4.0))  # 업로드 asp 또는 최소 4:1
-                    if _rasp > _target_asp + 0.5:
-                        _crop_w = int(_rh * _target_asp)
-                        _cx = (_rw - _crop_w) // 2
-                        _rimg = _rimg.crop((_cx, 0, _cx + _crop_w, _rh))
-                        _rw, _rh = _rimg.size
-                        _rbuf2 = _io2.BytesIO()
-                        _rimg.save(_rbuf2, format="JPEG", quality=85)
-                        _rb64 = _b64mod.b64encode(_rbuf2.getvalue()).decode()
-                    st.markdown(
-                        f'<img src="data:image/jpeg;base64,{_rb64}" '
-                        'style="width:100%;height:auto;display:block;border-radius:8px">',
-                        unsafe_allow_html=True
-                    )
-                except Exception as _e:
-                    st.markdown(f'<div style="color:#f87171;padding:8px;font-size:10px">오류: {_e}</div>',
-                                unsafe_allow_html=True)
+
+        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+
+        # ── 분석 버튼 ──
+        if st.button("🔍  파형 분석 시작", type="primary", use_container_width=True, key="sc_run"):
+            st.session_state["sc_done"] = True
+
+        # ── 프로파일 추출 ──
+        _q_profiles = None
+        if _canvas_result is not None and _canvas_result.json_data:
+            _q_profiles = _extract_query_profile_from_path(
+                _canvas_result.json_data, _arr_gray, _canvas_w, _canvas_h)
+
+        # ── 파형 시각화 ──
+        if _q_profiles:
+            st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
+            st.markdown(
+                '<div style="background:#0f172a;border-radius:14px;padding:14px 18px;margin-bottom:8px">'
+                '<div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;'
+                'text-transform:uppercase;margin-bottom:10px">📈 추출된 파형 프로파일</div>',
+                unsafe_allow_html=True)
+            import altair as _alt
+            import pandas as _pd_sc
+            for _pi, (_ptype, _pcolor, _pdata) in enumerate(_q_profiles):
+                _pnorm = _norm_resample(_pdata)
+                _df_p  = _pd_sc.DataFrame({"x": range(len(_pnorm)), "y": _pnorm.tolist()})
+                _hex   = _pcolor if _pcolor.startswith("#") else "#ffffff"
+                _ch    = (_alt.Chart(_df_p).mark_line(color=_hex, strokeWidth=1.5)
+                          .encode(x=_alt.X("x", axis=_alt.Axis(title="위치 →", labelFontSize=8)),
+                                  y=_alt.Y("y", axis=_alt.Axis(title="밝기(정규화)", labelFontSize=8)))
+                          .properties(height=120, title=f"{_ptype} 파형 {_pi+1}"))
+                st.altair_chart(_ch, use_container_width=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        # ── 유사도 분석 ──
+        if st.session_state.get("sc_done") and _SCAN_DB:
+            _medals     = ["🥇","🥈","🥉"]
+            _bar_colors = ["#a855f7","#6366f1","#8b5cf6"]
+            _ct_icons   = {"cylindrical":"🔋","pouch":"📦","prismatic":"🔲","jig":"🔧"}
+
+            _results = _rank_by_profile(_q_profiles, _SCAN_DB)
+
+            if not _results:
+                st.warning("선을 먼저 그려주세요. 선이 없으면 비교할 수 없습니다.")
             else:
-                st.markdown(f"""<div style="min-height:260px;display:flex;align-items:center;
-                justify-content:center;color:#475569;font-size:10px;text-align:center">
-                참조 이미지 없음</div>""", unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
+                _top3 = _results[:3]
+                _best_mname = _top3[0][0]
+                _best_sim   = _top3[0][1]
+                _best_ct    = _top3[0][2]
+                _score_pct  = _best_sim * 100
+                _sc_col     = "#4ade80" if _score_pct >= 75 else ("#f59e0b" if _score_pct >= 50 else "#f87171")
 
-        # ── Row 2: BEST MATCH + Top-3 (이미지 아래) ──
-        if st.session_state.get("scan_done") and _top3_full:
-            st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
-            _best_ct_icon = {"cylindrical":"🔋","pouch":"📦","prismatic":"🔲","jig":"🔧"}.get(
-                _top3_full[0][2], "❓")
-            _hu_ok_str = "형상+통계" if _hu_query else "통계"
-            _score_pct = _top3[0][1] * 100
-            _score_col = "#4ade80" if _score_pct>=80 else ("#f59e0b" if _score_pct>=55 else "#f87171")
+                # ── 셀렉션 버튼 상태 ──
+                _ref_idx = int(st.session_state.get("sc_ref_idx", 0))
+                if _ref_idx >= len(_top3): _ref_idx = 0
+                _ref_mname = _top3[_ref_idx][0]
 
-            _bm_l, _bm_r = st.columns([1, 1])
-            with _bm_l:
-                st.markdown(f"""
-                <div style="background:#0f172a;border-radius:16px;padding:16px 18px">
-                  <div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;
-                  text-transform:uppercase;margin-bottom:10px">🎯 BEST MATCH · {_hu_ok_str}</div>
-                  <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-                    <div style="background:{_score_col}22;border:2px solid {_score_col};
-                    border-radius:50%;width:56px;height:56px;display:flex;align-items:center;
-                    justify-content:center;font-size:16px;font-weight:900;color:{_score_col};flex-shrink:0">
-                      {_score_pct:.0f}%</div>
-                    <div>
-                      <div style="color:#a78bfa;font-size:15px;font-weight:800;line-height:1.2">
-                        {_best_ct_icon} {_top3[0][0]}</div>
-                      <div style="color:#64748b;font-size:9px;margin-top:3px">
-                        DB {_SCAN_DB.get('total_samples',0)}장 비교</div>
-                    </div>
-                  </div>
-                  <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px">
-                    <div style="background:#1e293b;border-radius:8px;padding:6px 4px;text-align:center">
-                      <div style="color:#475569;font-size:7px;margin-bottom:2px">밝기</div>
-                      <div style="color:#e2e8f0;font-size:12px;font-weight:700">{_mean_b:.0f}</div>
-                    </div>
-                    <div style="background:#1e293b;border-radius:8px;padding:6px 4px;text-align:center">
-                      <div style="color:#475569;font-size:7px;margin-bottom:2px">대비</div>
-                      <div style="color:#e2e8f0;font-size:12px;font-weight:700">{_std_b:.0f}</div>
-                    </div>
-                    <div style="background:#1e293b;border-radius:8px;padding:6px 4px;text-align:center">
-                      <div style="color:#475569;font-size:7px;margin-bottom:2px">엣지</div>
-                      <div style="color:#e2e8f0;font-size:12px;font-weight:700">{_edge_d:.3f}</div>
-                    </div>
-                    <div style="background:#1e293b;border-radius:8px;padding:6px 4px;text-align:center">
-                      <div style="color:#475569;font-size:7px;margin-bottom:2px">종횡비</div>
-                      <div style="color:#e2e8f0;font-size:12px;font-weight:700">{_aspect:.2f}</div>
-                    </div>
-                  </div>
-                </div>""", unsafe_allow_html=True)
+                # ── Row: BEST MATCH + TOP-3 ──
+                _r1l, _r1r = st.columns(2)
 
-            with _bm_r:
-                _medals = ["🥇","🥈","🥉"]
-                _bar_colors = ["#a855f7","#6366f1","#8b5cf6"]
-                _top3_html = ""
-                for _ri, (_mn, _ms) in enumerate(_top3):
-                    _pct = _ms * 100
-                    _ct_icon = {"cylindrical":"🔋","pouch":"📦","prismatic":"🔲","jig":"🔧"}.get(_top3_full[_ri][2], "")
-                    _mn_short = _mn if len(_mn) <= 22 else _mn[:21] + "…"
-                    _bc = _bar_colors[_ri]
-                    _top3_html += (
-                        f'<div style="margin-bottom:14px">'
-                        f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;gap:6px">'
-                        f'<span style="color:#cbd5e1;font-size:10px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1">'
-                        f'{_medals[_ri]} {_ct_icon} {_mn_short}</span>'
-                        f'<span style="color:{_bc};font-size:13px;font-weight:900;flex-shrink:0">{_pct:.1f}%</span>'
-                        f'</div>'
-                        f'<div style="background:#0f172a;border-radius:6px;height:10px;overflow:hidden">'
-                        f'<div style="background:linear-gradient(90deg,{_bc},{_bc}66);width:{int(_pct)}%;height:10px;border-radius:6px;box-shadow:0 0 10px {_bc}77"></div>'
-                        f'</div></div>'
-                    )
-                st.markdown(
-                    '<div style="background:#0f172a;border-radius:16px;padding:16px 18px">'
-                    '<div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:14px">📊 유사 모델 순위 TOP-3</div>'
-                    + _top3_html +
-                    '<div style="color:#475569;font-size:8px;text-align:center;margin-top:4px">👆 모델명 클릭 → 참조 이미지 변경</div>'
-                    '</div>',
-                    unsafe_allow_html=True
-                )
-                # ── 모델 선택 버튼 (클릭 시 참조 이미지 변경) ──
-                _sel_idx_now = int(st.session_state.get("ref_selected_idx", 0))
-                _btn_cols = st.columns(len(_top3))
-                for _bi, (_bm, _bs) in enumerate(_top3):
-                    with _btn_cols[_bi]:
-                        _is_sel = (_bi == _sel_idx_now)
-                        _btn_label = f"{'✅ ' if _is_sel else ''}{_medals[_bi]} {_bm[:18]}"
-                        if st.button(_btn_label, key=f"ref_sel_{_bi}", use_container_width=True):
-                            st.session_state["ref_selected_idx"] = _bi
-                            st.rerun()
+                with _r1l:
+                    _ct_icon = _ct_icons.get(_best_ct, "❓")
+                    _ct_lbl  = {"cylindrical":"원통형","pouch":"파우치","prismatic":"각형","jig":"지그"}.get(_best_ct, _best_ct)
+                    st.markdown(
+                        '<div style="background:#0f172a;border-radius:16px;padding:18px 20px">'
+                        '<div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;'
+                        'text-transform:uppercase;margin-bottom:14px">🎯 BEST MATCH · 파형 DTW</div>'
+                        '<div style="display:flex;align-items:center;gap:16px;margin-bottom:14px">'
+                        f'<div style="background:conic-gradient({_sc_col} {_score_pct*3.6:.0f}deg,#1e293b 0deg);'
+                        'border-radius:50%;width:72px;height:72px;display:flex;align-items:center;'
+                        'justify-content:center;flex-shrink:0">'
+                        '<div style="background:#0f172a;border-radius:50%;width:56px;height:56px;'
+                        'display:flex;align-items:center;justify-content:center">'
+                        f'<span style="color:{_sc_col};font-size:16px;font-weight:900">{_score_pct:.0f}%</span>'
+                        '</div></div>'
+                        '<div>'
+                        f'<div style="color:#f1f5f9;font-size:17px;font-weight:800;margin-bottom:4px">'
+                        f'{_ct_icon} {_best_mname}</div>'
+                        f'<div style="color:#64748b;font-size:10px">{_ct_lbl} · DB {_SCAN_DB.get("total_samples",0)}장 비교</div>'
+                        '</div></div>'
+                        f'<div style="color:#475569;font-size:9px;margin-top:4px">'
+                        f'파형 DTW 유사도 · 선 {len(_q_profiles) if _q_profiles else 0}개 기준</div>'
+                        '</div>',
+                        unsafe_allow_html=True)
 
-        # ── Row 3: 인포그래픽 메트릭 카드 ──
-        if st.session_state.get("scan_done"):
-            st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
-
-            # 이미지 유형 판별
-            _img_type     = "단면 (Cross-section)" if 0.85<=_aspect<=1.15 else \
-                            ("측면 (Side)" if _aspect < 0.85 else "가로형 (Wide)")
-            _img_type_ico = "⭕" if 0.85<=_aspect<=1.15 else "📏"
-            _bright_lbl   = "밝음" if _mean_b > 160 else ("보통" if _mean_b > 80 else "어두움")
-            _bright_pct   = int(_mean_b / 255 * 100)
-            _contrast_lbl = "높음" if _std_b > 60 else ("보통" if _std_b > 30 else "낮음")
-            _contrast_pct = int(min(_std_b / 80 * 100, 100))
-            _edge_lbl     = "복잡" if _edge_d > 0.06 else ("보통" if _edge_d > 0.03 else "단순")
-            _edge_pct     = int(min(_edge_d / 0.12 * 100, 100))
-            _res_mp       = round(_w * _h / 1_000_000, 1)
-
-            _c1,_c2,_c3,_c4,_c5 = st.columns(5)
-            def _metric_card(col, icon, label, val, sub, pct, color):
-                _bar = f'<div style="background:#e2e8f0;border-radius:4px;height:5px;margin-top:8px;overflow:hidden"><div style="background:{color};width:{pct}%;height:5px;border-radius:4px"></div></div>' if pct is not None else ""
-                col.markdown(f"""
-                <div style="background:white;border-radius:14px;padding:14px 12px;
-                box-shadow:0 2px 10px rgba(0,0,0,0.08);text-align:center;border-top:3px solid {color}">
-                  <div style="font-size:22px;margin-bottom:4px">{icon}</div>
-                  <div style="color:#6b7280;font-size:8px;font-weight:700;letter-spacing:1px;
-                  text-transform:uppercase;margin-bottom:4px">{label}</div>
-                  <div style="color:#111827;font-size:16px;font-weight:800;margin-bottom:2px">{val}</div>
-                  <div style="color:#9ca3af;font-size:9px">{sub}</div>
-                  {_bar}
-                </div>""", unsafe_allow_html=True)
-
-            _metric_card(_c1, "🖼️", "해상도", f"{_w}×{_h}", f"{_res_mp}MP", None, "#6366f1")
-            _metric_card(_c2, "☀️", "평균 밝기", f"{_mean_b:.0f}", _bright_lbl, _bright_pct, "#f59e0b")
-            _metric_card(_c3, "🌗", "명암 대비", f"{_std_b:.0f}", _contrast_lbl, _contrast_pct, "#8b5cf6")
-            _metric_card(_c4, "🔍", "엣지 밀도", f"{_edge_d:.3f}", _edge_lbl, _edge_pct, "#06b6d4")
-            _metric_card(_c5, _img_type_ico, "이미지 유형", _img_type.split()[0], _img_type, None, "#10b981")
-
-            # ── Row 4: Deep Analysis (장비 피처 비교) ──
-            if _SCAN_DB and _top3_full:
-                _best_mname = _top3_full[0][0]
-                _best_mdata = _SCAN_DB["machines"].get(_best_mname, {})
-                _best_stats = _best_mdata.get("stats", {})
-                _hu_ref     = _best_mdata.get("hu_mean")
-
-                st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
-                st.markdown(f"""
-                <div style="background:#0f172a;border-radius:16px;padding:14px 18px 10px">
-                  <div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;
-                  text-transform:uppercase;margin-bottom:4px">🔍 DEEP ANALYSIS</div>
-                  <div style="color:#94a3b8;font-size:10px;margin-bottom:14px">
-                    업로드 피처 vs <span style="color:#a78bfa;font-weight:700">{_best_mname}</span> 분포 비교
-                  </div>""", unsafe_allow_html=True)
-
-                _feat_defs = [
-                    ("mean",  "☀️", "평균 밝기", _mean_b,     0,   255, "#60a5fa"),
-                    ("std",   "🌗", "명암 대비", _std_b,      0,   128, "#34d399"),
-                    ("edge",  "🔍", "엣지 밀도", _edge_d,     0,  0.15, "#f59e0b"),
-                    ("asp",   "📐", "종횡비",    _aspect,    0.3,   3.0, "#a78bfa"),
-                    ("peaks", "📊", "히스토 피크",_peaks_val, 0,     8,  "#f472b6"),
-                ]
-                _da_cols = st.columns(len(_feat_defs))
-                for _ci, (_fk, _fic, _flbl, _fval_raw, _fmin, _fmax, _fcol) in enumerate(_feat_defs):
-                    _ref_mu    = _best_stats.get(_fk, {}).get("mu")
-                    _ref_sigma = _best_stats.get(_fk, {}).get("sigma", 1.0)
-                    _range     = max(_fmax - _fmin, 1e-6)
-                    _pct_q     = int(min(max((_fval_raw - _fmin) / _range * 100, 0), 100))
-                    _pct_ref   = int(min(max((_ref_mu - _fmin) / _range * 100, 0), 100)) if _ref_mu else 50
-                    _z         = abs(_fval_raw - _ref_mu) / (_ref_sigma + 1e-6) if _ref_mu else 0
-                    _zc        = "#4ade80" if _z<1 else ("#f59e0b" if _z<2 else "#f87171")
-                    _zl        = "✓ 정상" if _z<1 else ("△ 주의" if _z<2 else "✗ 이탈")
-                    _ref_str   = f"{_ref_mu:.2f}±{_ref_sigma:.2f}" if _ref_mu else "—"
-                    _fval_str  = f"{_fval_raw:.3f}" if _fk in ("edge","asp") else f"{_fval_raw:.1f}"
-
-                    _da_cols[_ci].markdown(f"""
-                    <div style="background:#1e293b;border-radius:12px;padding:12px 10px;text-align:center">
-                      <div style="font-size:18px;margin-bottom:4px">{_fic}</div>
-                      <div style="color:#64748b;font-size:7px;text-transform:uppercase;
-                      letter-spacing:1px;margin-bottom:6px">{_flbl}</div>
-                      <div style="color:#f1f5f9;font-size:14px;font-weight:800;margin-bottom:2px">{_fval_str}</div>
-                      <div style="color:#475569;font-size:7px;margin-bottom:8px">참조 {_ref_str}</div>
-                      <div style="background:#0f172a;border-radius:4px;height:6px;overflow:hidden;margin-bottom:3px">
-                        <div style="background:{_fcol};width:{_pct_q}%;height:6px;border-radius:4px"></div>
-                      </div>
-                      <div style="background:#0f172a;border-radius:4px;height:4px;overflow:hidden;margin-bottom:6px;opacity:0.5">
-                        <div style="background:#94a3b8;width:{_pct_ref}%;height:4px;border-radius:4px"></div>
-                      </div>
-                      <div style="color:{_zc};font-size:9px;font-weight:700;background:{_zc}18;
-                      border-radius:6px;padding:2px 0">{_zl}</div>
-                    </div>""", unsafe_allow_html=True)
-
-                # Hu Moments + 뷰 분포
-                st.markdown("</div>", unsafe_allow_html=True)
-                st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
-
-                _hu_col, _vc_col = st.columns([1, 2])
-                with _hu_col:
-                    if _hu_query and _hu_ref:
-                        _hu_dist_val = _hu_dist(_hu_query, _hu_ref)
-                        _hu_sim_pct  = max(0, min(100, (1 - _hu_dist_val / 15.0) * 100))
-                        _huc = "#4ade80" if _hu_sim_pct>70 else ("#f59e0b" if _hu_sim_pct>40 else "#f87171")
-                        st.markdown(f"""
-                        <div style="background:#1e293b;border-radius:14px;padding:16px;text-align:center">
-                          <div style="color:#64748b;font-size:8px;text-transform:uppercase;
-                          letter-spacing:1px;margin-bottom:8px">🔷 형상 유사도</div>
-                          <div style="color:{_huc};font-size:32px;font-weight:900;
-                          line-height:1">{_hu_sim_pct:.0f}%</div>
-                          <div style="color:#475569;font-size:9px;margin-top:4px">Hu Moments</div>
-                          <div style="background:#0f172a;border-radius:6px;height:8px;
-                          overflow:hidden;margin-top:10px">
-                            <div style="background:{_huc};width:{int(_hu_sim_pct)}%;height:8px;
-                            border-radius:6px;box-shadow:0 0 8px {_huc}88"></div>
-                          </div>
-                        </div>""", unsafe_allow_html=True)
-
-                with _vc_col:
-                    _vc_dict = _best_mdata.get("view_counts", {})
-                    if _vc_dict:
-                        _vc_total = sum(_vc_dict.values())
-                        _vc_color_map = {
-                            "cross_section":"#a78bfa","top":"#60a5fa","bottom":"#34d399",
-                            "side":"#f59e0b","stack":"#f472b6","eol":"#fb923c",
-                            "full_label":"#38bdf8","msa":"#4ade80","unknown":"#64748b",
-                        }
-                        _vc_label_map = {
-                            "cross_section":"단면","top":"상단","bottom":"하단",
-                            "side":"측면","stack":"스택","eol":"EOL",
-                            "full_label":"전체","msa":"MSA","unknown":"미분류",
-                        }
-                        _vc_bars = ""
-                        for _vt, _vn in sorted(_vc_dict.items(), key=lambda x: -x[1]):
-                            _vp   = _vn / _vc_total * 100
-                            _vc_c = _vc_color_map.get(_vt, "#64748b")
-                            _vl   = _vc_label_map.get(_vt, _vt)
-                            _vc_bars += (
-                                f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">'
-                                f'<div style="color:{_vc_c};font-size:9px;font-weight:700;width:52px;flex-shrink:0;text-align:right">{_vl}</div>'
-                                f'<div style="flex:1;background:#0f172a;border-radius:4px;height:8px;overflow:hidden">'
-                                f'<div style="background:{_vc_c};width:{int(_vp)}%;height:8px;border-radius:4px;box-shadow:0 0 6px {_vc_c}55"></div>'
-                                f'</div>'
-                                f'<div style="color:{_vc_c};font-size:9px;font-weight:700;width:34px;text-align:right">{_vp:.0f}%</div>'
-                                f'</div>'
-                            )
-                        _vc_hdr = (f'<div style="background:#1e293b;border-radius:14px;padding:14px 16px">'
-                                   f'<div style="color:#64748b;font-size:8px;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">'
-                                   f'📁 {_best_mname} · 학습 뷰 분포 <span style="color:#475569">({_vc_total}장)</span></div>')
-                        st.markdown(_vc_hdr + _vc_bars + '</div>', unsafe_allow_html=True)
-
-                # ── 알고리즘 근거 설명 ──
-                st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
-
-                # 피처별 Z-score로 유사 근거 파악
-                _reason_parts = []
-                _strong_matches = []
-                _weak_matches   = []
-                for _fk2, _flbl2, _fval2 in [
-                    ("mean",  "평균 밝기",  _mean_b),
-                    ("std",   "명암 대비",  _std_b),
-                    ("edge",  "엣지 밀도",  _edge_d),
-                    ("asp",   "종횡비",     _aspect),
-                    ("peaks", "히스토 피크",_peaks_val),
-                ]:
-                    _mu2    = _best_stats.get(_fk2, {}).get("mu")
-                    _sig2   = _best_stats.get(_fk2, {}).get("sigma", 1.0)
-                    if _mu2 is None:
-                        continue
-                    _z2 = abs(_fval2 - _mu2) / (_sig2 + 1e-6)
-                    _fmt = ".3f" if _fk2 in ("edge","asp") else ".1f"
-                    _valstr = f"{_fval2:{_fmt}}"
-                    _refstr = f"{_mu2:{_fmt}}±{_sig2:{_fmt}}"
-                    if _z2 < 0.8:
-                        _strong_matches.append(f"<b>{_flbl2}</b> {_valstr} ≈ DB {_refstr}")
-                    elif _z2 < 1.5:
-                        _weak_matches.append(f"{_flbl2} {_valstr} (DB {_refstr}, Z={_z2:.1f}σ)")
-
-                # ── 피처별 상세 분석 데이터 준비 ──
-                _feat_detail = []   # (label, icon, desc, upload_val, ref_mu, ref_sig, z, unit)
-                _feat_meta = [
-                    ("mean",  "☀️",  "평균 밝기",   "이미지 전체 밝기 수준. X-RAY에서 밀도가 낮을수록 밝음",    _mean_b,    "gray",  ".1f", ""),
-                    ("std",   "🌗",  "명암 대비",   "밝고 어두운 영역의 차이. 내부 구조가 복잡할수록 높음",      _std_b,     "gray",  ".1f", ""),
-                    ("edge",  "🔍",  "엣지 밀도",   "경계선 밀도. 원통형 단면은 동심원 패턴으로 높게 나타남",   _edge_d,    "gray",  ".4f", ""),
-                    ("asp",   "📐",  "종횡비 (W/H)","가로÷세로. 1.0에 가까울수록 원형(단면), 클수록 파노라마", _aspect,    "gray",  ".3f", ""),
-                    ("peaks", "📊",  "히스토 피크", "명암 분포 봉우리 수. 내부 레이어 구조를 반영",            _peaks_val, "gray",  ".1f", "개"),
-                ]
-                for _fk2, _fic2, _flbl2, _fdesc2, _fval2, _, _fmt2, _unit2 in _feat_meta:
-                    _mu2  = _best_stats.get(_fk2, {}).get("mu")
-                    _sig2 = _best_stats.get(_fk2, {}).get("sigma", 1.0)
-                    if _mu2 is None:
-                        continue
-                    _z2  = abs(_fval2 - _mu2) / (_sig2 + 1e-6)
-                    _zc2 = "#4ade80" if _z2 < 0.8 else ("#f59e0b" if _z2 < 1.5 else "#f87171")
-                    _zl2 = ("매우 유사" if _z2 < 0.8 else ("유사" if _z2 < 1.5 else "차이 있음"))
-                    _feat_detail.append((_flbl2, _fic2, _fdesc2, _fval2, _mu2, _sig2, _z2, _zc2, _zl2, _fmt2, _unit2))
-                    if _z2 < 0.8:
-                        _strong_matches.append(f"<b>{_flbl2}</b> {_fval2:{_fmt2}}{_unit2} ≈ DB {_mu2:{_fmt2}}±{_sig2:{_fmt2}}{_unit2}")
-                    elif _z2 < 1.5:
-                        _weak_matches.append(f"{_flbl2} {_fval2:{_fmt2}}{_unit2} (DB {_mu2:{_fmt2}}±{_sig2:{_fmt2}}{_unit2}, {_z2:.1f}σ 차이)")
-
-                # 뷰타입 라벨
-                _upload_view_lbl = {"cross_section":"단면(원형)","side":"측면/파노라마","other":"기타"}.get(_upload_view,"?")
-                _ref_view_top    = max(_vc_dict.items(), key=lambda x: x[1])[0] if _vc_dict else "?"
-                _ref_view_lbl    = {"cross_section":"단면","top":"상단","bottom":"하단","side":"측면","unknown":"미분류"}.get(_ref_view_top, _ref_view_top)
-
-                # ── 피처 비교 테이블 행 ──
-                _feat_rows = ""
-                for _flbl2, _fic2, _fdesc2, _fval2, _mu2, _sig2, _z2, _zc2, _zl2, _fmt2, _unit2 in _feat_detail:
-                    _bar_pct = max(0, min(100, int((1 - min(_z2, 3) / 3) * 100)))
-                    _feat_rows += (
-                        f'<tr style="border-bottom:1px solid #1e293b">'
-                        f'<td style="padding:8px 10px 8px 0;width:20px;font-size:14px">{_fic2}</td>'
-                        f'<td style="padding:8px 12px 8px 0;min-width:90px">'
-                        f'<div style="color:#e2e8f0;font-size:10px;font-weight:700">{_flbl2}</div>'
-                        f'<div style="color:#475569;font-size:8px;line-height:1.4">{_fdesc2}</div>'
-                        f'</td>'
-                        f'<td style="padding:8px 12px;text-align:center;white-space:nowrap">'
-                        f'<div style="color:#60a5fa;font-size:13px;font-weight:800">{_fval2:{_fmt2}}{_unit2}</div>'
-                        f'<div style="color:#475569;font-size:8px">업로드</div>'
-                        f'</td>'
-                        f'<td style="padding:8px 12px;text-align:center;white-space:nowrap">'
-                        f'<div style="color:#a78bfa;font-size:13px;font-weight:800">{_mu2:{_fmt2}}{_unit2}</div>'
-                        f'<div style="color:#475569;font-size:8px">±{_sig2:{_fmt2}} (DB평균)</div>'
-                        f'</td>'
-                        f'<td style="padding:8px 0;min-width:120px">'
-                        f'<div style="display:flex;align-items:center;gap:6px">'
-                        f'<div style="flex:1;background:#0f172a;border-radius:4px;height:6px;overflow:hidden">'
-                        f'<div style="background:{_zc2};width:{_bar_pct}%;height:6px;border-radius:4px"></div>'
-                        f'</div>'
-                        f'<span style="color:{_zc2};font-size:9px;font-weight:700;white-space:nowrap">{_zl2}</span>'
-                        f'</div>'
-                        f'<div style="color:#475569;font-size:8px;margin-top:2px">{_z2:.2f}σ 차이</div>'
-                        f'</td>'
-                        f'</tr>'
-                    )
-
-                # ── 전극 형상 피처 행 추가 ──
-                _best_elec_mean = _best_mdata.get("elec_mean", {}) if _best_mdata else {}
-                _elec_feat_meta = [
-                    ("e_mid",    "⚡", "활물질 비율",    "중간 밝기(64~192) 픽셀 비율 — 양극/음극 활물질 영역",      ".3f", ""),
-                    ("e_dark",   "🔩", "집전체 비율",    "어두운 픽셀(<64) 비율 — Cu/Al 집전체, 금속 탭 영역",        ".3f", ""),
-                    ("e_bright", "💡", "저밀도 비율",    "밝은 픽셀(>192) 비율 — 분리막, 전해질, 공기층",            ".3f", ""),
-                    ("lp_norm",  "📏", "층 주기(정규화)", "층 1개 평균 두께 ÷ 이미지 높이 — 작을수록 층이 얇고 많음",  ".4f", ""),
-                    ("l_cv",     "📉", "층 균일도(CV)",  "층 간격 변동계수 — 낮을수록 층이 균일하게 쌓임",            ".3f", ""),
-                    ("n_layers", "🧱", "층 경계 수",     "검출된 층 경계(양극↔분리막↔음극 교대) 수",                  ".0f", "개"),
-                    ("v_freq",   "〰", "수직 FFT 주파수","층 반복 주파수(정규화×1000) — 층 주기의 역수",              ".2f", ""),
-                    ("zone_var", "🗺", "공간 분산",      "4×4 구역 밝기 분산 — 내부 재료 분포의 불균일도",            ".4f", ""),
-                ]
-                if _elec_query and _best_elec_mean:
-                    _feat_rows += (
-                        f'<tr><td colspan="5" style="padding:8px 0 4px;border-top:2px solid #334155">'
-                        f'<div style="color:#f59e0b;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:1px">'
-                        f'⚡ 전극 형상 피처 (Score-C · 55% 가중)</div></td></tr>'
-                    )
-                    for _ek, _eic, _elbl, _edesc, _efmt, _eunit in _elec_feat_meta:
-                        _ev = _elec_query.get(_ek, 0)
-                        _em = _best_elec_mean.get(_ek, {})
-                        if not isinstance(_em, dict):
-                            continue
-                        _emu  = _em.get("mu", 0)
-                        _esig = _em.get("sigma", 1.0)
-                        _ez   = abs(_ev - _emu) / (_esig + 1e-6)
-                        _ezc  = "#4ade80" if _ez < 0.8 else ("#f59e0b" if _ez < 1.5 else "#f87171")
-                        _ezl  = "매우 유사" if _ez < 0.8 else ("유사" if _ez < 1.5 else "차이 있음")
-                        _ebp  = max(0, min(100, int((1 - min(_ez, 3) / 3) * 100)))
-                        _feat_rows += (
-                            f'<tr style="border-bottom:1px solid #1e293b">'
-                            f'<td style="padding:8px 10px 8px 0;width:20px;font-size:14px">{_eic}</td>'
-                            f'<td style="padding:8px 12px 8px 0;min-width:90px">'
-                            f'<div style="color:#fcd34d;font-size:10px;font-weight:700">{_elbl}</div>'
-                            f'<div style="color:#475569;font-size:8px;line-height:1.4">{_edesc}</div>'
-                            f'</td>'
-                            f'<td style="padding:8px 12px;text-align:center;white-space:nowrap">'
-                            f'<div style="color:#60a5fa;font-size:13px;font-weight:800">{_ev:{_efmt}}{_eunit}</div>'
-                            f'<div style="color:#475569;font-size:8px">업로드</div>'
-                            f'</td>'
-                            f'<td style="padding:8px 12px;text-align:center;white-space:nowrap">'
-                            f'<div style="color:#a78bfa;font-size:13px;font-weight:800">{_emu:{_efmt}}{_eunit}</div>'
-                            f'<div style="color:#475569;font-size:8px">±{_esig:{_efmt}} (DB평균)</div>'
-                            f'</td>'
-                            f'<td style="padding:8px 0;min-width:120px">'
-                            f'<div style="display:flex;align-items:center;gap:6px">'
-                            f'<div style="flex:1;background:#0f172a;border-radius:4px;height:6px;overflow:hidden">'
-                            f'<div style="background:{_ezc};width:{_ebp}%;height:6px;border-radius:4px"></div>'
+                with _r1r:
+                    _t3_html = ""
+                    for _ri, (_mn, _ms, _ct, _vc) in enumerate(_top3):
+                        _pct = _ms * 100
+                        _bc  = _bar_colors[_ri]
+                        _ic  = _ct_icons.get(_ct, "")
+                        _mn_s = _mn if len(_mn) <= 22 else _mn[:21]+"…"
+                        _t3_html += (
+                            f'<div style="margin-bottom:14px">'
+                            f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">'
+                            f'<span style="color:#cbd5e1;font-size:10px;font-weight:600">{_medals[_ri]} {_ic} {_mn_s}</span>'
+                            f'<span style="color:{_bc};font-size:13px;font-weight:900">{_pct:.1f}%</span>'
                             f'</div>'
-                            f'<span style="color:{_ezc};font-size:9px;font-weight:700;white-space:nowrap">{_ezl}</span>'
-                            f'</div>'
-                            f'<div style="color:#475569;font-size:8px;margin-top:2px">{_ez:.2f}σ 차이</div>'
-                            f'</td>'
-                            f'</tr>'
+                            f'<div style="background:#1e293b;border-radius:6px;height:10px;overflow:hidden">'
+                            f'<div style="background:linear-gradient(90deg,{_bc},{_bc}88);width:{int(_pct)}%;height:10px;border-radius:6px"></div>'
+                            f'</div></div>'
                         )
+                    st.markdown(
+                        '<div style="background:#0f172a;border-radius:16px;padding:16px 18px">'
+                        '<div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;'
+                        'text-transform:uppercase;margin-bottom:14px">📊 유사 모델 순위 TOP-3</div>'
+                        + _t3_html +
+                        '<div style="color:#475569;font-size:8px;text-align:center;margin-top:4px">'
+                        '👆 아래 버튼으로 참조 이미지 전환</div></div>',
+                        unsafe_allow_html=True)
 
-                # ── 스코어 신뢰도 설명 ──
-                _conf_lv  = "높음 🟢" if _score_pct >= 80 else ("보통 🟡" if _score_pct >= 55 else "낮음 🔴")
-                _score_c_pct = round(_top3_full[0][6] * 100, 1) if len(_top3_full[0]) > 6 else 0.0
-                _conf_msg = (
-                    f"{_score_pct:.0f}%는 DB 전체 {_SCAN_DB.get('total_samples',0)}장 중 가장 유사한 수치입니다. "
-                    f"전극 형상(에너지 분포·FFT·층구조) 55% + 통계 피처 25% + Hu 외형 20%의 3-Score 가중 합산 결과이며, "
-                    f"전극 형상 점수 단독으로 {_score_c_pct:.0f}% 유사도를 보였습니다."
-                    if _score_pct >= 80 else
-                    f"일부 피처에서 차이가 있어 {_score_pct:.0f}%로 산출되었습니다. "
-                    f"전극 형상 점수는 {_score_c_pct:.0f}%이며, 종횡비·밝기 차이가 있으면 동일 장비라도 점수가 낮아질 수 있습니다."
-                )
+                    # 선택 버튼
+                    _btn_cols = st.columns(len(_top3))
+                    for _bi, (_bm, _bs, *_) in enumerate(_top3):
+                        with _btn_cols[_bi]:
+                            _is_sel = (_bi == _ref_idx)
+                            if st.button(
+                                f"{'✅ ' if _is_sel else ''}{_medals[_bi]} {_bm[:15]}",
+                                key=f"sc_ref_{_bi}", use_container_width=True):
+                                st.session_state["sc_ref_idx"] = _bi
+                                st.rerun()
 
-                # ── 뷰타입 설명 ──
-                _view_msg = (
-                    f"종횡비 {_aspect:.2f}로 <b style='color:#60a5fa'>{_upload_view_lbl}</b>으로 판정됩니다. "
-                    + ("원형에 가까운 단면 이미지로, 원통형 셀의 단면 촬영과 일치합니다." if _upload_view == "cross_section"
-                       else "가로로 긴 파노라마 이미지로, 셀 측면 또는 전체 라인 촬영과 일치합니다." if _upload_view == "side"
-                       else "중간 종횡비 이미지입니다.")
-                )
+                # ── Row: 이미지 비교 ──
+                st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
+                _img2l, _img2r = st.columns(2)
 
-                # ── 결론 문장 생성 ──
-                _match_reason = []
-                for _flbl2, _, _, _fval2, _mu2, _sig2, _z2, _zc2, _zl2, _fmt2, _unit2 in _feat_detail:
-                    if _z2 < 0.8:
-                        _match_reason.append(f"<span style='color:#4ade80;font-weight:700'>{_flbl2}({_fval2:{_fmt2}}≈{_mu2:{_fmt2}})</span>")
-                _reason_str = "·".join(_match_reason[:3]) if _match_reason else "통계적으로 근접한 값"
+                with _img2l:
+                    st.markdown(
+                        '<div style="background:#0f172a;border-radius:12px;padding:10px 14px 8px;margin-bottom:4px">'
+                        '<div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;'
+                        'text-transform:uppercase;margin-bottom:6px">📤 UPLOADED IMAGE</div>',
+                        unsafe_allow_html=True)
+                    _show_img(_img_rgb)
+                    st.markdown('</div>', unsafe_allow_html=True)
 
-                st.markdown(
-                    '<div style="background:#0f172a;border-radius:16px;padding:18px 20px">'
+                with _img2r:
+                    _ref_sel_lbl = _medals[_ref_idx] if _ref_idx < len(_medals) else ""
+                    st.markdown(
+                        '<div style="background:#0f172a;border-radius:12px;padding:10px 14px 8px;margin-bottom:4px">'
+                        f'<div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;'
+                        f'text-transform:uppercase;margin-bottom:6px">📷 참조 — {_ref_sel_lbl} {_ref_mname[:28]}</div>',
+                        unsafe_allow_html=True)
+                    _rimg = _get_ref_img(_ref_mname)
+                    if _rimg:
+                        _rw, _rh = _rimg.size
+                        _rasp = _rw / (_rh + 1e-6)
+                        _target_asp = min(_rasp, max(_aspect, 4.0))
+                        if _rasp > _target_asp + 0.5:
+                            _cw = int(_rh * _target_asp)
+                            _cx = (_rw - _cw) // 2
+                            _rimg = _rimg.crop((_cx, 0, _cx+_cw, _rh))
+                        _show_img(_rimg)
+                    else:
+                        st.markdown('<div style="color:#475569;padding:20px;text-align:center">참조 이미지 없음</div>',
+                                    unsafe_allow_html=True)
+                    st.markdown('</div>', unsafe_allow_html=True)
 
-                    # 헤더
-                    '<div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:4px">🧠 매칭 근거 분석 — WHY THIS MACHINE?</div>'
-                    f'<div style="color:#94a3b8;font-size:10px;margin-bottom:16px">이 이미지가 <span style="color:#a78bfa;font-weight:700">{_top3[0][0]}</span>와 <span style="color:#4ade80;font-weight:700">{_score_pct:.1f}%</span> 유사하다고 판단한 근거</div>'
+                # ── 파형 비교 (DB 대표 프로파일 vs 쿼리) ──
+                if _q_profiles and _SCAN_DB:
+                    _ref_mdata = _SCAN_DB["machines"].get(_ref_mname, {})
+                    _ref_em    = _ref_mdata.get("elec_mean", {})
+                    _ref_h     = _ref_em.get("h_profile_mean")
+                    _ref_ht    = _ref_em.get("h_top_mean")
 
-                    # 상단 3분할: 알고리즘 방식 | 신뢰도 | 뷰타입
-                    '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px">'
+                    if _ref_h:
+                        import altair as _alt2
+                        import pandas as _pd_sc2
 
-                    # 카드1: 분석 방식
-                    '<div style="background:#1e293b;border-radius:12px;padding:14px">'
-                    '<div style="color:#64748b;font-size:8px;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">🔬 분석 방식</div>'
-                    '<div style="color:#a78bfa;font-size:12px;font-weight:800;margin-bottom:8px">3-Score 매칭 알고리즘</div>'
-                    '<div style="color:#475569;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">스크리닝 · Hu Moments 외형 (20%)</div>'
-                    '<div style="color:#94a3b8;font-size:9px;line-height:1.6;margin-bottom:8px">'
-                    '7개 형상 불변량으로 외형 윤곽을 수치화. '
-                    f'전체 DB {_SCAN_DB.get("total_samples",0)}장 중 <b style="color:#e2e8f0">Top-14 후보</b>를 추려냅니다.'
-                    '</div>'
-                    '<div style="color:#475569;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Score-B · 기본 통계 (25%)</div>'
-                    '<div style="color:#94a3b8;font-size:9px;line-height:1.6;margin-bottom:8px">'
-                    '밝기·대비·엣지·종횡비·히스토 피크 5개 z-score 거리 비교.'
-                    '</div>'
-                    '<div style="color:#f59e0b;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">⚡ Score-C · 전극 형상 (55%)</div>'
-                    '<div style="color:#94a3b8;font-size:9px;line-height:1.6">'
-                    '<b style="color:#fcd34d">에너지 분포 히스토그램</b>(8구간 재료 지문), '
-                    '<b style="color:#fcd34d">FFT 층 주기</b>(v_freq·h_freq), '
-                    '<b style="color:#fcd34d">재료 비율</b>(e_bright/e_mid/e_dark), '
-                    '<b style="color:#fcd34d">층 균일도</b>(lp_norm·l_cv·n_layers), '
-                    '<b style="color:#fcd34d">공간 분산</b>(zone_var) — 총 12개 피처.'
-                    '</div>'
-                    '</div>'
+                        st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
+                        st.markdown(
+                            '<div style="background:#0f172a;border-radius:14px;padding:14px 18px">'
+                            '<div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;'
+                            'text-transform:uppercase;margin-bottom:4px">🔄 파형 비교 — 내 이미지 vs DB 대표 파형</div>'
+                            f'<div style="color:#475569;font-size:9px;margin-bottom:12px">'
+                            f'{_ref_mname} DB 평균 파형 ({_ref_em.get("profile_count",0)}장 평균)</div>',
+                            unsafe_allow_html=True)
 
-                    # 카드2: 신뢰도
-                    f'<div style="background:#1e293b;border-radius:12px;padding:14px">'
-                    '<div style="color:#64748b;font-size:8px;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">📊 결과 신뢰도</div>'
-                    f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">'
-                    f'<div style="background:{_score_col}22;border:3px solid {_score_col};border-radius:50%;width:52px;height:52px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:900;color:{_score_col};flex-shrink:0">{_score_pct:.0f}%</div>'
-                    f'<div><div style="color:#e2e8f0;font-size:11px;font-weight:700">{_conf_lv}</div>'
-                    f'<div style="color:#475569;font-size:8px">신뢰도 수준</div></div>'
-                    f'</div>'
-                    f'<div style="color:#94a3b8;font-size:9px;line-height:1.6">{_conf_msg}</div>'
-                    '</div>'
+                        for _pi, (_ptype, _pcolor, _pdata) in enumerate(_q_profiles):
+                            _qn = _norm_resample(_pdata).tolist()
+                            _dbref = _ref_ht if ("ff" in _pcolor.lower() and "3" not in _pcolor.lower()) else _ref_h
+                            _df_cmp = _pd_sc2.DataFrame({
+                                "x":     list(range(_N_POINTS)) * 2,
+                                "y":     _qn + list(_dbref),
+                                "종류":  [f"내 이미지 (선{_pi+1})"]*_N_POINTS + [f"DB {_ref_mname[:15]}"]*_N_POINTS,
+                            })
+                            _hex = _pcolor if _pcolor.startswith("#") else "#ffffff"
+                            _ch2 = (_alt2.Chart(_df_cmp)
+                                    .mark_line(strokeWidth=1.5)
+                                    .encode(
+                                        x=_alt2.X("x", axis=_alt2.Axis(title="위치 →", labelFontSize=8)),
+                                        y=_alt2.Y("y", axis=_alt2.Axis(title="정규화 밝기", labelFontSize=8)),
+                                        color=_alt2.Color("종류", scale=_alt2.Scale(
+                                            domain=[f"내 이미지 (선{_pi+1})", f"DB {_ref_mname[:15]}"],
+                                            range=[_hex, "#94a3b8"])),
+                                        strokeDash=_alt2.StrokeDash("종류", scale=_alt2.Scale(
+                                            domain=[f"내 이미지 (선{_pi+1})", f"DB {_ref_mname[:15]}"],
+                                            range=[[1,0],[4,2]])))
+                                    .properties(height=140,
+                                                title=f"{_ptype} 파형 vs DB 대표 파형"))
+                            st.altair_chart(_ch2, use_container_width=True)
 
-                    # 카드3: 뷰타입
-                    f'<div style="background:#1e293b;border-radius:12px;padding:14px">'
-                    '<div style="color:#64748b;font-size:8px;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">📐 이미지 뷰 판정</div>'
-                    f'<div style="color:#60a5fa;font-size:14px;font-weight:800;margin-bottom:6px">{_upload_view_lbl}</div>'
-                    f'<div style="color:#94a3b8;font-size:9px;line-height:1.6;margin-bottom:10px">{_view_msg}</div>'
-                    '<div style="color:#475569;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">참조 이미지 선택</div>'
-                    f'<div style="color:#94a3b8;font-size:9px">DB 내 <span style="color:#a78bfa;font-weight:600">{_ref_view_lbl}</span> 뷰 이미지 중 업로드와 같은 뷰({_upload_view_lbl})를 우선 표시합니다.</div>'
-                    '</div>'
-                    '</div>'  # grid 끝
-
-                    # 피처 상세 비교 테이블
-                    '<div style="background:#1e293b;border-radius:12px;padding:14px;margin-bottom:14px">'
-                    '<div style="color:#64748b;font-size:8px;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">📋 피처별 상세 비교 — 업로드 이미지 vs DB 평균</div>'
-                    '<table style="width:100%;border-collapse:collapse">'
-                    f'<thead><tr>'
-                    f'<th style="color:#475569;font-size:8px;text-align:left;padding:0 10px 8px 0;border-bottom:1px solid #334155" colspan="2">피처</th>'
-                    f'<th style="color:#60a5fa;font-size:8px;text-align:center;padding:0 12px 8px;border-bottom:1px solid #334155">내 이미지</th>'
-                    f'<th style="color:#a78bfa;font-size:8px;text-align:center;padding:0 12px 8px;border-bottom:1px solid #334155">DB 평균</th>'
-                    f'<th style="color:#475569;font-size:8px;text-align:left;padding:0 0 8px;border-bottom:1px solid #334155">유사도</th>'
-                    f'</tr></thead>'
-                    f'<tbody>{_feat_rows}</tbody>'
-                    '</table>'
-                    '</div>'
-
-                    # 결론
-                    '<div style="background:#1e293b;border-radius:10px;padding:12px 16px;border-left:4px solid #a78bfa">'
-                    '<div style="color:#a78bfa;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">💡 왜 이 장비가 1위인가?</div>'
-                    f'<div style="color:#cbd5e1;font-size:10px;line-height:1.8">'
-                    f'업로드 이미지는 <span style="color:#60a5fa;font-weight:600">{_upload_view_lbl}</span>(종횡비 {_aspect:.2f})로 분석되었습니다. '
-                    f'DB {_SCAN_DB.get("total_samples",0)}장 대상 Hu 외형 스크리닝(20%) → 통계 피처(25%) → '
-                    f'<span style="color:#fcd34d;font-weight:700">전극 형상 에너지 분포(55%)</span> 3-Score 분석을 거쳐, '
-                    f'<span style="color:#a78bfa;font-weight:700">{_top3[0][0]}</span>이 {_reason_str} 등 전극 피처에서 가장 근접했습니다. '
-                    f'전극 형상 Score-C만 단독으로도 <span style="color:#fcd34d;font-weight:700">{_score_c_pct:.0f}%</span>를 기록했으며, '
-                    f'2위 <span style="color:#6366f1;font-weight:600">{_top3[1][0] if len(_top3)>1 else "—"}</span>({_top3[1][1]*100:.1f}%)보다 '
-                    f'<span style="color:#4ade80;font-weight:700">{(_top3[0][1]-_top3[1][1])*100:.1f}%p</span> 앞서 명확히 1위입니다.'
-                    '</div>'
-                    '</div>'
-
-                    '</div>',  # 전체 컨테이너 끝
-                    unsafe_allow_html=True
-                )
+                        st.markdown('</div>', unsafe_allow_html=True)
