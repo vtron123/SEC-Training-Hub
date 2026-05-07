@@ -3627,7 +3627,7 @@ with tab4:
 
         # ── 자동 분석 (업로드 즉시 실행) ──
         if _SCAN_DB:
-            _medals     = ["🥇","🥈","🥉"]
+            _medals     = ["1","2","3"]
             _bar_colors = ["#a855f7","#6366f1","#8b5cf6"]
             _ct_icons   = {"cylindrical":"🔋","pouch":"📦","prismatic":"🔲","jig":"🔧"}
 
@@ -3722,7 +3722,7 @@ with tab4:
                         with _btn_cols[_bi]:
                             _is_sel = (_bi == _ref_idx)
                             if st.button(
-                                f"{'✅ ' if _is_sel else ''}{_medals[_bi]} {_bm[:15]}",
+                                f"{'✅ ' if _is_sel else ''}{_medals[_bi]}위 {_bm[:15]}",
                                 key=f"sc_ref_{_bi}", use_container_width=True):
                                 st.session_state["sc_ref_idx"] = _bi
                                 st.rerun()
@@ -3741,22 +3741,15 @@ with tab4:
                     st.markdown('</div>', unsafe_allow_html=True)
 
                 with _img2r:
-                    _ref_sel_lbl = _medals[_ref_idx] if _ref_idx < len(_medals) else ""
+                    _ref_num = _medals[_ref_idx] if _ref_idx < len(_medals) else ""
                     st.markdown(
                         '<div style="background:#0f172a;border-radius:12px;padding:10px 14px 8px;margin-bottom:4px">'
                         f'<div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;'
-                        f'text-transform:uppercase;margin-bottom:6px">📷 참조 — {_ref_sel_lbl} {_ref_mname[:28]}</div>',
+                        f'text-transform:uppercase;margin-bottom:6px">📷 참조 — {_ref_num}위 {_ref_mname[:28]}</div>',
                         unsafe_allow_html=True)
                     _rimg = _get_ref_img(_ref_mname)
                     if _rimg:
-                        _rw, _rh = _rimg.size
-                        _rasp = _rw / (_rh + 1e-6)
-                        _target_asp = min(_rasp, max(_aspect, 4.0))
-                        if _rasp > _target_asp + 0.5:
-                            _cw = int(_rh * _target_asp)
-                            _cx = (_rw - _cw) // 2
-                            _rimg = _rimg.crop((_cx, 0, _cx+_cw, _rh))
-                        _show_img(_rimg)
+                        _show_img(_rimg)   # 크롭 없이 원본 전체 표시
                     else:
                         st.markdown('<div style="color:#475569;padding:20px;text-align:center">참조 이미지 없음</div>',
                                     unsafe_allow_html=True)
