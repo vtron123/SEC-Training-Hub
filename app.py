@@ -2155,11 +2155,10 @@ with tab3:
         if all_sch.empty:
             st.markdown('<div class="sec-alert">등록된 일정이 없어요!</div>', unsafe_allow_html=True)
         else:
-            # 완료된 것은 맨 아래, 나머지는 시작일 오름차순
-            all_sch["_sort_key"] = all_sch.apply(
-                lambda r: ("Z" if r["완료"] == "✅" else "A") + str(r["날짜"]).split(" ~ ")[0].strip(), axis=1
-            )
-            upcoming = all_sch.sort_values("_sort_key")
+            # 완료된 것은 맨 아래, 나머지는 시작일 내림차순 (최신 상단)
+            all_sch["_is_done"]  = (all_sch["완료"] == "✅").astype(int)
+            all_sch["_date_key"] = all_sch["날짜"].apply(lambda x: str(x).split(" ~ ")[0].strip())
+            upcoming = all_sch.sort_values(["_is_done", "_date_key"], ascending=[True, False])
 
             # ── 수정 폼 (선택된 행이 있을 때) ──
             es = st.session_state.editing_schedule
