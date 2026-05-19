@@ -1721,38 +1721,39 @@ with tab3:
             st.markdown('<div class="sec-alert" style="font-size:12px;text-align:center">등록된 일정이 없습니다</div>', unsafe_allow_html=True)
         else:
             sch_df["_sort"] = sch_df["날짜"].apply(lambda x: str(x).split(" ~ ")[0].strip())
-            sch_sorted = sch_df.sort_values("_sort")
-            for _, row in sch_sorted.iterrows():
-                actual_row = int(row["_row"])
-                is_done = row["완료"] == "✅"
-                txt_color = "#9ca3af" if is_done else "#374151"
-                strike = "line-through" if is_done else "none"
-                memo_part = ('<div style="font-size:11px;color:#9ca3af;margin-top:2px">'
-                             + html_lib.escape(str(row["메모"])) + '</div>') if row["메모"] else ""
-                card = ('<div style="background:white;border-radius:12px;padding:10px 14px;'
-                        'margin-bottom:6px;box-shadow:0 1px 6px rgba(0,0,0,0.06)">'
-                        '<div style="font-size:10px;color:#a855f7;font-weight:600">'
-                        + html_lib.escape(str(row["날짜"])) + '</div>'
-                        '<div style="font-size:13px;font-weight:600;color:' + txt_color
-                        + ';text-decoration:' + strike + '">'
-                        + html_lib.escape(str(row["제목"])) + '</div>'
-                        + memo_part + '</div>')
-                st.markdown(card, unsafe_allow_html=True)
-                c1, c2 = st.columns(2)
-                with c1:
-                    if st.button("↩️ 취소" if is_done else "✅ 완료", key=f"sch_done_{actual_row}", use_container_width=True):
-                        try:
-                            toggle_schedule_done(actual_row, is_done)
-                            st.rerun()
-                        except Exception as e:
-                            st.error(str(e))
-                with c2:
-                    if st.button("🗑️ 삭제", key=f"sch_del_{actual_row}", use_container_width=True):
-                        try:
-                            delete_schedule_row(actual_row)
-                            st.rerun()
-                        except Exception as e:
-                            st.error(str(e))
+            sch_sorted = sch_df.sort_values("_sort", ascending=False)  # 최신 일자 최상단
+            with st.container(height=420, border=False):
+                for _, row in sch_sorted.iterrows():
+                    actual_row = int(row["_row"])
+                    is_done = row["완료"] == "✅"
+                    txt_color = "#9ca3af" if is_done else "#374151"
+                    strike = "line-through" if is_done else "none"
+                    memo_part = ('<div style="font-size:11px;color:#9ca3af;margin-top:2px">'
+                                 + html_lib.escape(str(row["메모"])) + '</div>') if row["메모"] else ""
+                    card = ('<div style="background:white;border-radius:12px;padding:10px 14px;'
+                            'margin-bottom:6px;box-shadow:0 1px 6px rgba(0,0,0,0.06)">'
+                            '<div style="font-size:10px;color:#a855f7;font-weight:600">'
+                            + html_lib.escape(str(row["날짜"])) + '</div>'
+                            '<div style="font-size:13px;font-weight:600;color:' + txt_color
+                            + ';text-decoration:' + strike + '">'
+                            + html_lib.escape(str(row["제목"])) + '</div>'
+                            + memo_part + '</div>')
+                    st.markdown(card, unsafe_allow_html=True)
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        if st.button("↩️ 취소" if is_done else "✅ 완료", key=f"sch_done_{actual_row}", use_container_width=True):
+                            try:
+                                toggle_schedule_done(actual_row, is_done)
+                                st.rerun()
+                            except Exception as e:
+                                st.error(str(e))
+                    with c2:
+                        if st.button("🗑️ 삭제", key=f"sch_del_{actual_row}", use_container_width=True):
+                            try:
+                                delete_schedule_row(actual_row)
+                                st.rerun()
+                            except Exception as e:
+                                st.error(str(e))
 
     # ── 오른쪽: 캐릭터 + 말풍선 + 일정 현황 ──
     with col_sch_main:
