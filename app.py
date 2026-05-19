@@ -2209,66 +2209,67 @@ with tab3:
                             st.session_state.editing_schedule = None
                             st.rerun()
 
-            # ── 행 렌더링 (카드형) ──
-            for _, row in upcoming.iterrows():
-                actual_row = int(row["_row"])
-                is_done   = row["완료"] == "✅"
-                start_d   = _parse_start_date(row["날짜"])
-                end_d     = _parse_end_date(row["날짜"])
+            # ── 행 렌더링 (카드형, 스크롤 가능) ──
+            with st.container(height=420, border=False):
+                for _, row in upcoming.iterrows():
+                    actual_row = int(row["_row"])
+                    is_done   = row["완료"] == "✅"
+                    start_d   = _parse_start_date(row["날짜"])
+                    end_d     = _parse_end_date(row["날짜"])
 
-                def _badge(txt, bg):
-                    return (
-                        '<span style="background:' + bg + ';color:white;font-size:10px;'
-                        'padding:3px 10px;border-radius:12px;font-weight:700;white-space:nowrap">'
-                        + txt + '</span>'
-                    )
+                    def _badge(txt, bg):
+                        return (
+                            '<span style="background:' + bg + ';color:white;font-size:10px;'
+                            'padding:3px 10px;border-radius:12px;font-weight:700;white-space:nowrap">'
+                            + txt + '</span>'
+                        )
 
-                if is_done:
-                    badge_html = _badge("완료", "#6b7280")
-                elif end_d is None:
-                    badge_html = ""
-                elif end_d < today:
-                    badge_html = _badge("기간 지남", "#991b1b")
-                elif end_d == today:
-                    badge_html = _badge("마감일", "#dc2626")
-                elif start_d is not None and start_d <= today < end_d:
-                    badge_html = _badge("진행 중", "#d97706")
-                else:
-                    delta = (start_d - today).days if start_d else 0
-                    badge_html = _badge("D-" + str(delta), "#7c3aed")
+                    if is_done:
+                        badge_html = _badge("완료", "#6b7280")
+                    elif end_d is None:
+                        badge_html = ""
+                    elif end_d < today:
+                        badge_html = _badge("기간 지남", "#991b1b")
+                    elif end_d == today:
+                        badge_html = _badge("마감일", "#dc2626")
+                    elif start_d is not None and start_d <= today < end_d:
+                        badge_html = _badge("진행 중", "#d97706")
+                    else:
+                        delta = (start_d - today).days if start_d else 0
+                        badge_html = _badge("D-" + str(delta), "#7c3aed")
 
-                is_editing_this = (es is not None and es["row"] == actual_row)
-                card_border  = "border:2px solid #a855f7;" if is_editing_this else "border:1px solid rgba(255,255,255,0.8);"
-                card_opacity = "opacity:0.55;" if is_done else ""
+                    is_editing_this = (es is not None and es["row"] == actual_row)
+                    card_border  = "border:2px solid #a855f7;" if is_editing_this else "border:1px solid rgba(255,255,255,0.8);"
+                    card_opacity = "opacity:0.55;" if is_done else ""
 
-                date_e  = html_lib.escape(str(row["날짜"]))
-                title_e = html_lib.escape(str(row["제목"]))
-                memo_e  = html_lib.escape(str(row["메모"]))
-                memo_part = ('<span style="font-size:11px;color:#9ca3af;margin-left:8px">' + memo_e + '</span>') if memo_e else ""
+                    date_e  = html_lib.escape(str(row["날짜"]))
+                    title_e = html_lib.escape(str(row["제목"]))
+                    memo_e  = html_lib.escape(str(row["메모"]))
+                    memo_part = ('<span style="font-size:11px;color:#9ca3af;margin-left:8px">' + memo_e + '</span>') if memo_e else ""
 
-                col_card, col_btn = st.columns([10, 1])
-                with col_card:
-                    st.markdown(
-                        '<div style="background:white;border-radius:14px;padding:12px 18px;'
-                        'box-shadow:0 2px 10px rgba(0,0,0,0.06);margin-bottom:6px;' + card_border + card_opacity + '">'
-                        '<div style="display:flex;align-items:center;gap:12px">'
-                        '<div style="min-width:60px;text-align:center">' + badge_html + '</div>'
-                        '<div style="font-size:11px;color:#9ca3af;min-width:160px">' + date_e + '</div>'
-                        '<div style="font-size:13px;font-weight:600;color:#374151;flex:1">'
-                        + title_e + memo_part + '</div>'
-                        '</div></div>',
-                        unsafe_allow_html=True
-                    )
-                with col_btn:
-                    if st.button("✏️", key=f"edit_btn_{actual_row}", use_container_width=True,
-                                 help="일정 수정"):
-                        st.session_state.editing_schedule = {
-                            "row": actual_row,
-                            "날짜": str(row["날짜"]),
-                            "제목": str(row["제목"]),
-                            "메모": str(row["메모"]),
-                        }
-                        st.rerun()
+                    col_card, col_btn = st.columns([10, 1])
+                    with col_card:
+                        st.markdown(
+                            '<div style="background:white;border-radius:14px;padding:12px 18px;'
+                            'box-shadow:0 2px 10px rgba(0,0,0,0.06);margin-bottom:6px;' + card_border + card_opacity + '">'
+                            '<div style="display:flex;align-items:center;gap:12px">'
+                            '<div style="min-width:60px;text-align:center">' + badge_html + '</div>'
+                            '<div style="font-size:11px;color:#9ca3af;min-width:160px">' + date_e + '</div>'
+                            '<div style="font-size:13px;font-weight:600;color:#374151;flex:1">'
+                            + title_e + memo_part + '</div>'
+                            '</div></div>',
+                            unsafe_allow_html=True
+                        )
+                    with col_btn:
+                        if st.button("✏️", key=f"edit_btn_{actual_row}", use_container_width=True,
+                                     help="일정 수정"):
+                            st.session_state.editing_schedule = {
+                                "row": actual_row,
+                                "날짜": str(row["날짜"]),
+                                "제목": str(row["제목"]),
+                                "메모": str(row["메모"]),
+                            }
+                            st.rerun()
 
 
 # ══════════════════════════════════════════════
