@@ -3348,38 +3348,41 @@ with tab4:
     _SCAN_DB   = _load_scan_db_global()
     _MANIFEST  = _load_manifest_global()
 
-    # ── EfficientNet-B0 모델 (캐시 — 세션당 1회 로드) ──────────────────
-    @st.cache_resource(show_spinner="🧠 EfficientNet 모델 로딩 중...")
+    # ── EfficientNet-B0 ONNX 모델 (캐시 — 세션당 1회 로드) ───────────────
+    @st.cache_resource(show_spinner=False)
     def _load_eff_model():
+        """ONNX Runtime으로 EfficientNet-B0 로드 (torch 불필요, ~20MB)"""
         try:
-            import torch
-            import torchvision.transforms as tv_tf
-            import torchvision.models as tv_m
-            model = tv_m.efficientnet_b0(
-                weights=tv_m.EfficientNet_B0_Weights.IMAGENET1K_V1
-            )
-            model.classifier = torch.nn.Identity()
-            model.eval()
-            tf = tv_tf.Compose([
-                tv_tf.Resize((224, 224)),
-                tv_tf.ToTensor(),
-                tv_tf.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-            ])
-            return model, tf, True
+            import onnxruntime as _ort
+            import pathlib as _pl
+            onnx_path = _pl.Path(__file__).resolve().parent / "efficientnet_b0.onnx"
+            if not onnx_path.exists():
+                return None, False
+            opts = _ort.SessionOptions()
+            opts.inter_op_num_threads = 1
+            opts.intra_op_num_threads = 2
+            sess = _ort.InferenceSession(str(onnx_path), sess_options=opts,
+                                         providers=["CPUExecutionProvider"])
+            return sess, True
         except Exception:
-            return None, None, False
+            return None, False
+
+    # ImageNet 정규화 파라미터 (torchvision 대체)
+    _IMG_MEAN = _np.array([0.485, 0.456, 0.406], dtype=_np.float32)
+    _IMG_STD  = _np.array([0.229, 0.224, 0.225], dtype=_np.float32)
 
     def _compute_embedding(arr_gray):
-        """업로드 이미지 → EfficientNet-B0 1280차원 L2정규화 임베딩"""
-        model, tf, ok = _load_eff_model()
+        """업로드 이미지 → EfficientNet-B0 1280차원 L2정규화 임베딩 (ONNX)"""
+        sess, ok = _load_eff_model()
         if not ok or arr_gray is None:
             return None
         try:
-            import torch
-            img = _PILImage.fromarray(arr_gray, "L").convert("RGB")
-            tensor = tf(img).unsqueeze(0)
-            with torch.no_grad():
-                emb = model(tensor).squeeze(0).numpy()
+            # grayscale → RGB 224×224
+            img = _PILImage.fromarray(arr_gray, "L").convert("RGB").resize((224, 224), _PILImage.BILINEAR)
+            arr = _np.array(img, dtype=_np.float32) / 255.0          # (224,224,3) [0~1]
+            arr = (arr - _IMG_MEAN) / _IMG_STD                        # 정규화
+            tensor = arr.transpose(2, 0, 1)[_np.newaxis, :]           # (1,3,224,224)
+            emb = sess.run(None, {"input": tensor})[0][0]             # (1280,)
             norm = float(_np.linalg.norm(emb)) + 1e-8
             return emb / norm
         except Exception:
