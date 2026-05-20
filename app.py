@@ -1,4 +1,4 @@
-import streamlit as st
+﻿import streamlit as st
 import streamlit.components.v1 as _components
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
@@ -495,108 +495,6 @@ div[data-testid="stMarkdownContainer"] { width: 100% !important; }
     border-radius: 12px !important;
     font-family: 'Pretendard', sans-serif !important;
 }
-
-/* ── 전체 위젯 강제 화이트 + 검정 텍스트 (모든 PC 환경 동일하게) ── */
-/* selectbox */
-[data-testid="stSelectbox"] > div > div,
-[data-baseweb="select"] > div {
-    background: #ffffff !important;
-    border: 1.5px solid #e2e8f0 !important;
-    border-radius: 10px !important;
-    color: #1e293b !important;
-}
-[data-baseweb="select"] span,
-[data-baseweb="select"] div {
-    color: #1e293b !important;
-}
-[data-baseweb="popover"] ul li,
-[data-baseweb="popover"] [role="option"] {
-    background: #ffffff !important;
-    color: #1e293b !important;
-}
-[data-baseweb="popover"] [role="option"]:hover,
-[data-baseweb="popover"] [aria-selected="true"] {
-    background: #f3e8ff !important;
-    color: #7c3aed !important;
-}
-/* number input */
-[data-testid="stNumberInput"] input,
-[data-testid="stNumberInput"] > div {
-    background: #ffffff !important;
-    color: #1e293b !important;
-    border: 1.5px solid #e2e8f0 !important;
-    border-radius: 10px !important;
-}
-[data-testid="stNumberInput"] button {
-    background: #f8fafc !important;
-    color: #374151 !important;
-    border-color: #e2e8f0 !important;
-}
-/* text input & textarea */
-[data-testid="stTextInput"] input,
-[data-testid="stTextArea"] textarea,
-.stTextInput input,
-.stTextArea textarea {
-    background: #ffffff !important;
-    color: #1e293b !important;
-    border: 1.5px solid #e2e8f0 !important;
-    border-radius: 10px !important;
-}
-/* date input */
-[data-testid="stDateInput"] input {
-    background: #ffffff !important;
-    color: #1e293b !important;
-    border: 1.5px solid #e2e8f0 !important;
-    border-radius: 10px !important;
-}
-/* labels */
-[data-testid="stSelectbox"] label,
-[data-testid="stNumberInput"] label,
-[data-testid="stTextInput"] label,
-[data-testid="stTextArea"] label,
-[data-testid="stDateInput"] label,
-.stMarkdown p,
-.stMarkdown li,
-.stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {
-    color: #1e293b !important;
-}
-/* expander header text */
-.streamlit-expanderHeader p,
-.streamlit-expanderHeader span {
-    color: #1e293b !important;
-}
-/* file uploader */
-[data-testid="stFileUploader"] section {
-    background: #ffffff !important;
-    border: 2px dashed #cbd5e1 !important;
-    border-radius: 12px !important;
-}
-[data-testid="stFileUploader"] section *,
-[data-testid="stFileUploader"] > label,
-[data-testid="stFileUploader"] > label * {
-    color: #374151 !important;
-}
-[data-testid="stFileUploader"] section svg { fill: #374151 !important; }
-[data-testid="stFileUploader"] section button {
-    background: #f1f5f9 !important;
-    color: #374151 !important;
-    border: 1px solid #cbd5e1 !important;
-    border-radius: 8px !important;
-}
-[data-testid="stFileUploader"] [data-testid="stFileUploaderFile"] {
-    background: #f8fafc !important;
-    border-radius: 8px !important;
-}
-[data-testid="stFileUploader"] [data-testid="stFileUploaderFile"] * {
-    color: #374151 !important;
-}
-/* button (primary 제외) */
-button[kind="secondary"] {
-    background: #ffffff !important;
-    color: #374151 !important;
-    border: 1.5px solid #e2e8f0 !important;
-    border-radius: 10px !important;
-}
 </style>
 """, unsafe_allow_html=True)
 
@@ -713,8 +611,7 @@ MACHINE_MAP = {
     "1호기": ["1호기"],
     "2호기": ["2호기"],
     "JH3": ["JH3"],
-    "LGES 각형 AL": ["각형 AL", "각형AL", "LGES AL", "AL"],
-    "LGES 각형 CU": ["각형 CU", "각형CU", "LGES CU", "CU"],
+    "SES 탑머터리얼": ["SES 탑머터리얼", "탑머터리얼", "SES TAP", "탑머", "SES"],
 }
 
 MACHINE_LIST = ["(장비 자동감지)"] + list(MACHINE_MAP.keys())
@@ -724,7 +621,7 @@ PC_SLOTS = {f"PC-{i:02d}": "" for i in range(1, 13)}  # PC-01 ~ PC-12
 # ──────────────────────────────────────────────
 # 구글 시트 연결
 # ──────────────────────────────────────────────
-@st.cache_resource(ttl=600)
+@st.cache_resource(ttl=300)
 def get_sheet_client():
     scope = [
         "https://spreadsheets.google.com/feeds",
@@ -758,24 +655,6 @@ def get_pc_sheet():
         return client.open(SHEET_NAME).get_worksheet(1)
     except:
         return None
-
-@st.cache_resource(show_spinner=False)
-def _load_scan_db_global():
-    """scan_db.json 을 앱 시작 시 1회만 로드 (cache_resource = 역직렬화 없음)"""
-    _db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scan_db.json")
-    if not os.path.exists(_db_path):
-        return None
-    with open(_db_path, encoding="utf-8") as _f:
-        return json.load(_f)
-
-@st.cache_resource(show_spinner=False)
-def _load_manifest_global():
-    """ref_imgs/manifest.json 1회 로드"""
-    _mp = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ref_imgs", "manifest.json")
-    if not os.path.exists(_mp):
-        return {}
-    with open(_mp, encoding="utf-8") as _f:
-        return json.load(_f)
 
 @st.cache_data(ttl=120)
 def load_all_data():
@@ -1721,39 +1600,38 @@ with tab3:
             st.markdown('<div class="sec-alert" style="font-size:12px;text-align:center">등록된 일정이 없습니다</div>', unsafe_allow_html=True)
         else:
             sch_df["_sort"] = sch_df["날짜"].apply(lambda x: str(x).split(" ~ ")[0].strip())
-            sch_sorted = sch_df.sort_values("_sort", ascending=False)  # 최신 일자 최상단
-            with st.container(height=420, border=False):
-                for _, row in sch_sorted.iterrows():
-                    actual_row = int(row["_row"])
-                    is_done = row["완료"] == "✅"
-                    txt_color = "#9ca3af" if is_done else "#374151"
-                    strike = "line-through" if is_done else "none"
-                    memo_part = ('<div style="font-size:11px;color:#9ca3af;margin-top:2px">'
-                                 + html_lib.escape(str(row["메모"])) + '</div>') if row["메모"] else ""
-                    card = ('<div style="background:white;border-radius:12px;padding:10px 14px;'
-                            'margin-bottom:6px;box-shadow:0 1px 6px rgba(0,0,0,0.06)">'
-                            '<div style="font-size:10px;color:#a855f7;font-weight:600">'
-                            + html_lib.escape(str(row["날짜"])) + '</div>'
-                            '<div style="font-size:13px;font-weight:600;color:' + txt_color
-                            + ';text-decoration:' + strike + '">'
-                            + html_lib.escape(str(row["제목"])) + '</div>'
-                            + memo_part + '</div>')
-                    st.markdown(card, unsafe_allow_html=True)
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        if st.button("↩️ 취소" if is_done else "✅ 완료", key=f"sch_done_{actual_row}", use_container_width=True):
-                            try:
-                                toggle_schedule_done(actual_row, is_done)
-                                st.rerun()
-                            except Exception as e:
-                                st.error(str(e))
-                    with c2:
-                        if st.button("🗑️ 삭제", key=f"sch_del_{actual_row}", use_container_width=True):
-                            try:
-                                delete_schedule_row(actual_row)
-                                st.rerun()
-                            except Exception as e:
-                                st.error(str(e))
+            sch_sorted = sch_df.sort_values("_sort")
+            for _, row in sch_sorted.iterrows():
+                actual_row = int(row["_row"])
+                is_done = row["완료"] == "✅"
+                txt_color = "#9ca3af" if is_done else "#374151"
+                strike = "line-through" if is_done else "none"
+                memo_part = ('<div style="font-size:11px;color:#9ca3af;margin-top:2px">'
+                             + html_lib.escape(str(row["메모"])) + '</div>') if row["메모"] else ""
+                card = ('<div style="background:white;border-radius:12px;padding:10px 14px;'
+                        'margin-bottom:6px;box-shadow:0 1px 6px rgba(0,0,0,0.06)">'
+                        '<div style="font-size:10px;color:#a855f7;font-weight:600">'
+                        + html_lib.escape(str(row["날짜"])) + '</div>'
+                        '<div style="font-size:13px;font-weight:600;color:' + txt_color
+                        + ';text-decoration:' + strike + '">'
+                        + html_lib.escape(str(row["제목"])) + '</div>'
+                        + memo_part + '</div>')
+                st.markdown(card, unsafe_allow_html=True)
+                c1, c2 = st.columns(2)
+                with c1:
+                    if st.button("↩️ 취소" if is_done else "✅ 완료", key=f"sch_done_{actual_row}", use_container_width=True):
+                        try:
+                            toggle_schedule_done(actual_row, is_done)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(str(e))
+                with c2:
+                    if st.button("🗑️ 삭제", key=f"sch_del_{actual_row}", use_container_width=True):
+                        try:
+                            delete_schedule_row(actual_row)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(str(e))
 
     # ── 오른쪽: 캐릭터 + 말풍선 + 일정 현황 ──
     with col_sch_main:
@@ -2155,16 +2033,11 @@ with tab3:
         if all_sch.empty:
             st.markdown('<div class="sec-alert">등록된 일정이 없어요!</div>', unsafe_allow_html=True)
         else:
-            # 완료된 것은 맨 아래, 나머지는 시작일 내림차순 (최신 상단)
-            def _dk(x): return str(x).split(" ~ ")[0].strip()
-            _non_done = all_sch[all_sch["완료"] != "✅"].copy()
-            _done     = all_sch[all_sch["완료"] == "✅"].copy()
-            _non_done["_date_key"] = _non_done["날짜"].apply(_dk)
-            _done["_date_key"]     = _done["날짜"].apply(_dk)
-            upcoming = pd.concat([
-                _non_done.sort_values("_date_key", ascending=False),
-                _done.sort_values("_date_key", ascending=False),
-            ])
+            # 완료된 것은 맨 아래, 나머지는 시작일 오름차순
+            all_sch["_sort_key"] = all_sch.apply(
+                lambda r: ("Z" if r["완료"] == "✅" else "A") + str(r["날짜"]).split(" ~ ")[0].strip(), axis=1
+            )
+            upcoming = all_sch.sort_values("_sort_key")
 
             # ── 수정 폼 (선택된 행이 있을 때) ──
             es = st.session_state.editing_schedule
@@ -2214,67 +2087,66 @@ with tab3:
                             st.session_state.editing_schedule = None
                             st.rerun()
 
-            # ── 행 렌더링 (카드형, 스크롤 가능) ──
-            with st.container(height=420, border=False):
-                for _, row in upcoming.iterrows():
-                    actual_row = int(row["_row"])
-                    is_done   = row["완료"] == "✅"
-                    start_d   = _parse_start_date(row["날짜"])
-                    end_d     = _parse_end_date(row["날짜"])
+            # ── 행 렌더링 (카드형) ──
+            for _, row in upcoming.iterrows():
+                actual_row = int(row["_row"])
+                is_done   = row["완료"] == "✅"
+                start_d   = _parse_start_date(row["날짜"])
+                end_d     = _parse_end_date(row["날짜"])
 
-                    def _badge(txt, bg):
-                        return (
-                            '<span style="background:' + bg + ';color:white;font-size:10px;'
-                            'padding:3px 10px;border-radius:12px;font-weight:700;white-space:nowrap">'
-                            + txt + '</span>'
-                        )
+                def _badge(txt, bg):
+                    return (
+                        '<span style="background:' + bg + ';color:white;font-size:10px;'
+                        'padding:3px 10px;border-radius:12px;font-weight:700;white-space:nowrap">'
+                        + txt + '</span>'
+                    )
 
-                    if is_done:
-                        badge_html = _badge("완료", "#6b7280")
-                    elif end_d is None:
-                        badge_html = ""
-                    elif end_d < today:
-                        badge_html = _badge("기간 지남", "#991b1b")
-                    elif end_d == today:
-                        badge_html = _badge("마감일", "#dc2626")
-                    elif start_d is not None and start_d <= today < end_d:
-                        badge_html = _badge("진행 중", "#d97706")
-                    else:
-                        delta = (start_d - today).days if start_d else 0
-                        badge_html = _badge("D-" + str(delta), "#7c3aed")
+                if is_done:
+                    badge_html = _badge("완료", "#6b7280")
+                elif end_d is None:
+                    badge_html = ""
+                elif end_d < today:
+                    badge_html = _badge("기간 지남", "#991b1b")
+                elif end_d == today:
+                    badge_html = _badge("마감일", "#dc2626")
+                elif start_d is not None and start_d <= today < end_d:
+                    badge_html = _badge("진행 중", "#d97706")
+                else:
+                    delta = (start_d - today).days if start_d else 0
+                    badge_html = _badge("D-" + str(delta), "#7c3aed")
 
-                    is_editing_this = (es is not None and es["row"] == actual_row)
-                    card_border  = "border:2px solid #a855f7;" if is_editing_this else "border:1px solid rgba(255,255,255,0.8);"
-                    card_opacity = "opacity:0.55;" if is_done else ""
+                is_editing_this = (es is not None and es["row"] == actual_row)
+                card_border  = "border:2px solid #a855f7;" if is_editing_this else "border:1px solid rgba(255,255,255,0.8);"
+                card_opacity = "opacity:0.55;" if is_done else ""
 
-                    date_e  = html_lib.escape(str(row["날짜"]))
-                    title_e = html_lib.escape(str(row["제목"]))
-                    memo_e  = html_lib.escape(str(row["메모"]))
-                    memo_part = ('<span style="font-size:11px;color:#9ca3af;margin-left:8px">' + memo_e + '</span>') if memo_e else ""
+                date_e  = html_lib.escape(str(row["날짜"]))
+                title_e = html_lib.escape(str(row["제목"]))
+                memo_e  = html_lib.escape(str(row["메모"]))
+                memo_part = ('<span style="font-size:11px;color:#9ca3af;margin-left:8px">' + memo_e + '</span>') if memo_e else ""
 
-                    col_card, col_btn = st.columns([10, 1])
-                    with col_card:
-                        st.markdown(
-                            '<div style="background:white;border-radius:14px;padding:12px 18px;'
-                            'box-shadow:0 2px 10px rgba(0,0,0,0.06);margin-bottom:6px;' + card_border + card_opacity + '">'
-                            '<div style="display:flex;align-items:center;gap:12px">'
-                            '<div style="min-width:60px;text-align:center">' + badge_html + '</div>'
-                            '<div style="font-size:11px;color:#9ca3af;min-width:160px">' + date_e + '</div>'
-                            '<div style="font-size:13px;font-weight:600;color:#374151;flex:1">'
-                            + title_e + memo_part + '</div>'
-                            '</div></div>',
-                            unsafe_allow_html=True
-                        )
-                    with col_btn:
-                        if st.button("✏️", key=f"edit_btn_{actual_row}", use_container_width=True,
-                                     help="일정 수정"):
-                            st.session_state.editing_schedule = {
-                                "row": actual_row,
-                                "날짜": str(row["날짜"]),
-                                "제목": str(row["제목"]),
-                                "메모": str(row["메모"]),
-                            }
-                            st.rerun()
+                col_card, col_btn = st.columns([10, 1])
+                with col_card:
+                    st.markdown(
+                        '<div style="background:white;border-radius:14px;padding:12px 18px;'
+                        'box-shadow:0 2px 10px rgba(0,0,0,0.06);margin-bottom:6px;' + card_border + card_opacity + '">'
+                        '<div style="display:flex;align-items:center;gap:12px">'
+                        '<div style="min-width:60px;text-align:center">' + badge_html + '</div>'
+                        '<div style="font-size:11px;color:#9ca3af;min-width:160px">' + date_e + '</div>'
+                        '<div style="font-size:13px;font-weight:600;color:#374151;flex:1">'
+                        + title_e + memo_part + '</div>'
+                        '</div></div>',
+                        unsafe_allow_html=True
+                    )
+                with col_btn:
+                    if st.button("✏️", key=f"edit_btn_{actual_row}", use_container_width=True,
+                                 help="일정 수정"):
+                        st.session_state.editing_schedule = {
+                            "row": actual_row,
+                            "날짜": str(row["날짜"]),
+                            "제목": str(row["제목"]),
+                            "메모": str(row["메모"]),
+                        }
+                        st.rerun()
 
 
 # ══════════════════════════════════════════════
@@ -3309,612 +3181,542 @@ with tab5:
                 _news_cards(translated_anime, "애니/만화 소식을 불러올 수 없어요.")
 
 # ──────────────────────────────────────────────
-# TAB 4 — 샘플 스캔 분석 (v2 — 라인 프로파일 방식)
+# TAB 4 — 샘플 스캔 분석
 # ──────────────────────────────────────────────
 with tab4:
-    import io as _sc_io
-    import base64 as _sc_b64
-    import math as _sc_math
-    import json as _sc_json
-    import os as _sc_os
-
-    # ── 패키지 가용성 체크 ──
+    import hashlib as _hashlib
+    import json as _json
+    import math as _math
+    from PIL import Image as _PILImage, ImageFilter as _ImageFilter
+    import numpy as _np
+    import io as _io
     try:
-        import pydicom as _pydicom; _pydicom_ok = True
+        import pydicom as _pydicom
+        _pydicom_ok = True
     except ImportError:
         _pydicom_ok = False
 
+    # ── scan_db.json 로드 (캐시) ──
+    @st.cache_data(show_spinner=False)
+    def _load_scan_db():
+        _db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scan_db.json")
+        if not os.path.exists(_db_path):
+            return None
+        with open(_db_path, encoding="utf-8") as _f:
+            return _json.load(_f)
+
+    _SCAN_DB = _load_scan_db()
+
+    # ── cv2 지연 임포트 (Hu Moments용) ──
     try:
-        from fastdtw import fastdtw as _fastdtw; _dtw_ok = True
-    except ImportError:
-        try:
-            from scipy.spatial.distance import euclidean as _euclidean
-            def _fastdtw(a, b, **kw):
-                import numpy as _np2
-                a, b = _np2.array(a), _np2.array(b)
-                n, m = len(a), len(b)
-                dtw = _np2.full((n+1, m+1), _np2.inf)
-                dtw[0, 0] = 0
-                for i in range(1, n+1):
-                    for j in range(1, m+1):
-                        cost = abs(float(a[i-1]) - float(b[j-1]))
-                        dtw[i,j] = cost + min(dtw[i-1,j], dtw[i,j-1], dtw[i-1,j-1])
-                return float(dtw[n,m]), []
-            _dtw_ok = True
-        except Exception:
-            _dtw_ok = False
+        import cv2 as _cv2
+        _cv2_ok = True
+    except Exception:
+        _cv2_ok = False
 
-    try:
-        from scipy.signal import resample as _sp_resample; _scipy_ok = True
-    except ImportError:
-        _scipy_ok = False
-
-    import numpy as _np
-    from PIL import Image as _PILImage
-
-    _SCAN_DB   = _load_scan_db_global()
-    _MANIFEST  = _load_manifest_global()
-
-    # ── EfficientNet-B0 ONNX 모델 (캐시 — 세션당 1회 로드) ───────────────
-    @st.cache_resource(show_spinner=False)
-    def _load_eff_model():
-        """ONNX Runtime으로 EfficientNet-B0 로드 (torch 불필요, ~20MB)"""
-        try:
-            import onnxruntime as _ort
-            import pathlib as _pl
-            onnx_path = _pl.Path(__file__).resolve().parent / "efficientnet_b0.onnx"
-            if not onnx_path.exists():
-                return None, False
-            opts = _ort.SessionOptions()
-            opts.inter_op_num_threads = 1
-            opts.intra_op_num_threads = 2
-            sess = _ort.InferenceSession(str(onnx_path), sess_options=opts,
-                                         providers=["CPUExecutionProvider"])
-            return sess, True
-        except Exception:
-            return None, False
-
-    # ImageNet 정규화 파라미터 (torchvision 대체)
-    _IMG_MEAN = _np.array([0.485, 0.456, 0.406], dtype=_np.float32)
-    _IMG_STD  = _np.array([0.229, 0.224, 0.225], dtype=_np.float32)
-
-    def _compute_embedding(arr_gray):
-        """업로드 이미지 → EfficientNet-B0 1280차원 L2정규화 임베딩 (ONNX)"""
-        sess, ok = _load_eff_model()
-        if not ok or arr_gray is None:
+    def _compute_hu(arr_u8):
+        """Canny → 최대 윤곽선 → Hu Moments 로그변환 7개"""
+        if not _cv2_ok:
             return None
         try:
-            # grayscale → RGB 224×224
-            img = _PILImage.fromarray(arr_gray, "L").convert("RGB").resize((224, 224), _PILImage.BILINEAR)
-            arr = _np.array(img, dtype=_np.float32) / 255.0          # (224,224,3) [0~1]
-            arr = (arr - _IMG_MEAN) / _IMG_STD                        # 정규화
-            tensor = arr.transpose(2, 0, 1)[_np.newaxis, :]           # (1,3,224,224)
-            emb = sess.run(None, {"input": tensor})[0][0]             # (1280,)
-            norm = float(_np.linalg.norm(emb)) + 1e-8
-            return emb / norm
+            blurred = _cv2.GaussianBlur(arr_u8, (5, 5), 0)
+            edges   = _cv2.Canny(blurred, 30, 100)
+            cnts, _ = _cv2.findContours(edges, _cv2.RETR_EXTERNAL, _cv2.CHAIN_APPROX_SIMPLE)
+            if not cnts:
+                return None
+            largest = max(cnts, key=_cv2.contourArea)
+            if _cv2.contourArea(largest) < 50:
+                return None
+            moms = _cv2.moments(largest)
+            hu   = _cv2.HuMoments(moms).flatten()
+            return [float(-_math.copysign(1.0, float(v)) * _math.log10(abs(float(v)) + 1e-10))
+                    for v in hu]
         except Exception:
             return None
-    _N_POINTS  = 128   # 프로파일 정규화 포인트
 
-    # ── 헬퍼 함수 ──
-    def _norm_resample(profile, n=_N_POINTS):
-        arr = _np.array(profile, dtype=float)
-        mu, sig = arr.mean(), arr.std() + 1e-6
-        normed = (arr - mu) / sig
-        if _scipy_ok:
-            return _sp_resample(normed, n)
-        else:
-            idx = _np.linspace(0, len(normed)-1, n)
-            return _np.interp(idx, _np.arange(len(normed)), normed)
-
-    def _auto_extract_profiles(arr_gray):
-        """이미지에서 자동으로 h/v 프로파일 추출 (build_scan_db와 동일 로직)"""
-        if arr_gray is None:
+    def _hu_dist(hu_a, hu_b):
+        """Hu Moments 유클리드 거리 (처음 5개만, 잡음 많은 6~7번째 제외)"""
+        if hu_a is None or hu_b is None:
             return None
-        H, W = arr_gray.shape
-        f = arr_gray.astype(_np.float64)
-        h_center = f[int(H*0.40):int(H*0.60), :].mean(axis=0)
-        v_center = f[:, int(W*0.40):int(W*0.60)].mean(axis=1)
-        h_top    = f[int(H*0.05):int(H*0.20), :].mean(axis=0)
-        h_bot    = f[int(H*0.75):int(H*0.95), :].mean(axis=0)
-        return {
-            "h_center": h_center,
-            "v_center": v_center,
-            "h_top":    h_top,
-            "h_bot":    h_bot,
-        }
+        return _math.sqrt(sum((a - b) ** 2 for a, b in zip(hu_a[:5], hu_b[:5])))
 
-    # ────────────────────────────────────────────────────────────────
-    # 형상 기술자 (Shape Descriptor) — 에지 방향 히스토그램
-    # ────────────────────────────────────────────────────────────────
-    _SHAPE_H      = 64
-    _SHAPE_W      = 256
-    _SHAPE_ORIENT = 9
-    _SHAPE_ZONES  = 4
-
-    def _compute_shape_desc(arr_gray):
-        """업로드 이미지 → 에지 방향 히스토그램 기술자
-        - 수직 탭: 수직 에지(~90도) 집중
-        - 꺾인 탭: 에지 각도 분산
+    def _db_similarity_2tier(mean_b, std_b, edge_d, aspect, peaks_val, hu_q, db):
         """
-        from scipy.ndimage import sobel as _sobel_nd2
-        try:
-            H, W = arr_gray.shape
-            roi = arr_gray[int(H*0.05):int(H*0.90), :]
-            rh, rw = roi.shape
-            # 가로가 매우 긴 경우 중앙 크롭
-            if rw > rh * 5:
-                cx = rw // 2
-                hw = min(rh * 3, rw // 2)
-                roi = roi[:, max(0, cx-hw):cx+hw]
-            pil = _PILImage.fromarray(roi).resize((_SHAPE_W, _SHAPE_H), _PILImage.LANCZOS)
-            a = _np.array(pil, dtype=_np.float64)
-            gx  = _sobel_nd2(a, axis=1)
-            gy  = _sobel_nd2(a, axis=0)
-            mag = _np.sqrt(gx**2 + gy**2)
-            ori = _np.degrees(_np.arctan2(_np.abs(gy), _np.abs(gx) + 1e-8))  # 0~90
-            bins = _np.linspace(0, 90, _SHAPE_ORIENT + 1)
-            desc = []
-            zones = [(0, _SHAPE_H)] + [
-                (int(_SHAPE_H * i / _SHAPE_ZONES), int(_SHAPE_H * (i+1) / _SHAPE_ZONES))
-                for i in range(_SHAPE_ZONES)
-            ]
-            for y1, y2 in zones:
-                hist, _ = _np.histogram(ori[y1:y2, :].ravel(), bins=bins,
-                                        weights=mag[y1:y2, :].ravel())
-                s = hist.sum() + 1e-8
-                desc.extend((hist / s).tolist())
-            return _np.array(desc, dtype=float)
-        except Exception:
-            return None
-
-    def _cosine_sim(a, b):
-        a = _np.array(a, dtype=float)
-        b = _np.array(b, dtype=float)
-        return float(_np.dot(a, b) / (_np.linalg.norm(a) * _np.linalg.norm(b) + 1e-8))
-
-    def _measure_overhang(arr_gray):
-        """오버행 비율 측정 (캐쏘드 시작~아노드 끝 구간 높이/전체 높이)"""
-        try:
-            from scipy.ndimage import sobel as _s  # 미사용, import 확인용
-            H, W = arr_gray.shape
-            body = arr_gray[int(H*0.20):int(H*0.95), :].astype(_np.float64)
-            bH   = body.shape[0]
-            if bH < 10:
-                return 0.0
-            edge_w  = max(6, int(W * 0.04))
-            left_v  = body[:, :edge_w].mean(axis=1)
-            right_v = body[:, -edge_w:].mean(axis=1)
-            avg_v   = (left_v + right_v) / 2.0
-            bright_ref = float(_np.percentile(body, 70))
-            threshold  = bright_ref * 0.72
-            step_h = 0
-            for i in range(bH - 1, -1, -1):
-                if avg_v[i] < threshold:
-                    step_h += 1
-                else:
-                    break
-            return round(step_h / bH, 4)
-        except Exception:
-            return 0.0
-
-    def _overhang_similarity(q_val, db_mean, db_std):
-        """오버행 유사도: 가우시안 기반 (같을수록 1, 다를수록 0)"""
-        sigma = max(db_std, 0.03)   # 최소 spread
-        diff  = abs(q_val - db_mean)
-        return float(_sc_math.exp(-(diff**2) / (2 * sigma**2)))
-
-    def _rank_by_shape(shape_desc, db, overhang_val=None):
-        """형상 기술자 + 오버행 코사인 유사도 기반 랭킹"""
-        if shape_desc is None or db is None:
-            return []
-        scores = []
-        for mname, mdata in db["machines"].items():
-            em   = mdata.get("elec_mean", {})
-            db_s = em.get("shape_desc_mean")
-            if not db_s:
-                continue
-            shape_sim = _cosine_sim(shape_desc, db_s)
-            # 오버행 유사도 합산
-            if overhang_val is not None:
-                db_oh_m = em.get("overhang_mean", 0.0)
-                db_oh_s = em.get("overhang_std",  0.03)
-                oh_sim  = _overhang_similarity(overhang_val, db_oh_m, db_oh_s)
-                sim = shape_sim * 0.75 + oh_sim * 0.25
-            else:
-                sim = shape_sim
-            scores.append((mname, round(float(sim), 4),
-                           mdata.get("cell_type", "?"), {}))
-        scores.sort(key=lambda x: x[1], reverse=True)
-        if scores and scores[0][1] > 0:
-            top_v = scores[0][1]
-            scores = [(m, round(min(s/top_v,1.0)*0.97, 4), ct, vc)
-                      for m, s, ct, vc in scores]
-        return scores[:10]
-
-    def _rank_combined(emb, shape_desc, overhang_val, auto_profs, db):
-        """
-        종합 유사도 랭킹
-        임베딩 있을 때: 임베딩 60% + 에지형상 15% + 오버행 15% + DTW 10%
-        임베딩 없을 때: 에지형상 45% + 오버행 15% + DTW 40%
+        2-Tier 유사도 매칭
+        Tier-1: Hu Moments shape distance → Top-10 후보 추출
+        Tier-2: Multi-feature z-score (mean/std/edge/asp/peaks) 정밀 랭킹
         """
         if db is None:
-            return []
+            return [], "DB 없음"
 
-        use_emb = (emb is not None)
+        q_feats  = {"mean": mean_b, "std": std_b, "edge": edge_d, "asp": aspect, "peaks": peaks_val}
+        w_stats  = {"mean": 0.8, "std": 1.0, "edge": 1.5, "asp": 2.2, "peaks": 0.5}
+        machines = db["machines"]
 
-        scores = []
-        for mname, mdata in db["machines"].items():
-            em = mdata.get("elec_mean", {})
+        # ── Tier-1: Hu 거리로 전체 랭킹 ──
+        t1 = []
+        for mname, mdata in machines.items():
+            hd = _hu_dist(hu_q, mdata.get("hu_mean"))
+            t1.append((mname, hd if hd is not None else 1e9))
+        t1.sort(key=lambda x: x[1])
+        top10 = [m for m, _ in t1[:10]]
 
-            # 1) EfficientNet 임베딩 코사인 유사도
-            db_emb = em.get("emb_mean")
-            if use_emb and db_emb:
-                e_sim = float(_np.dot(emb, _np.array(db_emb, dtype=_np.float32)))
-                e_sim = max(0.0, min(1.0, (e_sim + 1.0) / 2.0))  # [-1,1] → [0,1]
-            else:
-                e_sim = None
+        # ── Tier-2: Top-10에 대해 Hu + 통계 결합 ──
+        t2 = []
+        for mname in top10:
+            mdata  = machines[mname]
+            stats  = mdata.get("stats", {})
+            # 통계 거리
+            sd = sum(w * ((q_feats[f] - stats[f]["mu"]) / (stats[f]["sigma"] + 1e-6)) ** 2
+                     for f, w in w_stats.items() if f in stats)
+            sd_norm = sd / max(len(w_stats), 1)
+            # Hu 거리 (정규화: 0~1 근사)
+            hd = _hu_dist(hu_q, mdata.get("hu_mean"))
+            hd_norm = min(hd / 10.0, 1.0) if hd is not None else 0.5
+            # 가중 결합 (형상 60%, 통계 40%)
+            dist = 0.60 * hd_norm + 0.40 * _math.tanh(sd_norm / 5.0)
+            sim  = _math.exp(-dist * 3.5)
+            t2.append((mname, round(sim, 4), mdata.get("cell_type", "?"),
+                       mdata.get("view_counts", {}), sd_norm, hd_norm))
+        t2.sort(key=lambda x: x[1], reverse=True)
 
-            # 2) 에지 방향 히스토그램 형상 기술자
-            db_s = em.get("shape_desc_mean")
-            s_sim = _cosine_sim(shape_desc, db_s) if (shape_desc is not None and db_s) else 0.5
+        # 정규화
+        if t2 and t2[0][1] > 0:
+            top_v = t2[0][1]
+            t2 = [(m, round(min(s / top_v, 1.0) * 0.97, 4), ct, vc, sd, hd)
+                  for m, s, ct, vc, sd, hd in t2]
 
-            # 3) 오버행 유사도
-            oh_sim = _overhang_similarity(
-                overhang_val,
-                em.get("overhang_mean", 0.0),
-                em.get("overhang_std", 0.03)
-            ) if overhang_val is not None else 0.5
+        method = f"2-Tier · DB {db.get('total_samples', 0)}장"
+        return t2, method
 
-            # 4) 프로파일 DTW 유사도 (보조)
-            db_h  = em.get("h_profile_mean")
-            db_ht = em.get("h_top_mean")
-            db_v  = em.get("v_profile_mean")
-            if auto_profs and db_h:
-                dtw_h  = _dtw_similarity(auto_profs["h_center"], db_h)
-                dtw_ht = _dtw_similarity(auto_profs["h_top"],    db_ht or db_h)
-                dtw_v  = _dtw_similarity(auto_profs["v_center"], db_v  or db_h)
-                dtw_sim = dtw_h * 0.5 + dtw_ht * 0.3 + dtw_v * 0.2
-            else:
-                dtw_sim = 0.5
-
-            # 가중 합산
-            if e_sim is not None:
-                total = e_sim * 0.60 + s_sim * 0.15 + oh_sim * 0.15 + dtw_sim * 0.10
-            else:
-                total = s_sim * 0.45 + oh_sim * 0.15 + dtw_sim * 0.40
-
-            scores.append((mname, round(float(total), 4),
-                           mdata.get("cell_type", "?"), {}))
-
-        scores.sort(key=lambda x: x[1], reverse=True)
-        if scores and scores[0][1] > 0:
-            top_v = scores[0][1]
-            scores = [(m, round(min(s / top_v, 1.0) * 0.97, 4), ct, vc)
-                      for m, s, ct, vc in scores]
-        return scores[:10]
-
-    def _dtw_similarity(q_prof, db_prof, max_dist=30.0):
-        """DTW 거리 → 0~1 유사도 (보조)"""
-        if not _dtw_ok or q_prof is None or db_prof is None:
-            return 0.5
-        try:
-            q = _norm_resample(q_prof)
-            d = _np.array(db_prof, dtype=float)
-            dist, _ = _fastdtw(q, d, dist=lambda a,b: abs(a-b))
-            sim = _sc_math.exp(-dist / max_dist)
-            return float(sim)
-        except Exception:
-            return 0.5
-
-    def _rank_by_profile(auto_profs, db):
-        """자동 추출 프로파일 → DTW+FFT 유사도 랭킹 (보조 매칭)"""
-        if not auto_profs or db is None:
-            return []
-        scores = []
-        for mname, mdata in db["machines"].items():
-            em    = mdata.get("elec_mean", {})
-            db_h  = em.get("h_profile_mean")
-            db_ht = em.get("h_top_mean")
-            db_v  = em.get("v_profile_mean")
-            if not db_h:
-                continue
-            sim_h  = _dtw_similarity(auto_profs["h_center"], db_h)
-            sim_ht = _dtw_similarity(auto_profs["h_top"],    db_ht or db_h)
-            sim_v  = _dtw_similarity(auto_profs["v_center"], db_v  or db_h)
-            avg_sim = (sim_h * 0.5 + sim_ht * 0.3 + sim_v * 0.2)
-            scores.append((mname, round(float(avg_sim), 4),
-                           mdata.get("cell_type", "?"), {}))
-        scores.sort(key=lambda x: x[1], reverse=True)
-        if scores and scores[0][1] > 0:
-            top_v = scores[0][1]
-            scores = [(m, round(min(s/top_v,1.0)*0.97,4), ct, vc) for m,s,ct,vc in scores]
-        return scores[:10]
-
-    def _load_img_from_file(f):
-        """업로드 파일 → PIL Image(RGB display), grayscale ndarray(분석용), DICOM meta dict"""
-        from PIL import ImageOps as _ImgOps
-        meta = {}
-        if f.name.lower().endswith(".dcm"):
-            if not _pydicom_ok:
-                return None, None, {}
-            raw = f.read(); f.seek(0)
-            try:
-                ds = _pydicom.dcmread(_sc_io.BytesIO(raw))
-                px = ds.pixel_array
-                if px.ndim == 2:
-                    # ── 분석용 8bit: 1~99 퍼센타일 클리핑 → 정규화 ──
-                    p1  = float(_np.percentile(px, 1))
-                    p99 = float(_np.percentile(px, 99))
-                    if p99 > p1:
-                        px_c = _np.clip(px.astype(_np.float32), p1, p99)
-                        px8  = ((px_c - p1) / (p99 - p1) * 255).astype(_np.uint8)
-                    else:
-                        px8  = _np.zeros_like(px, dtype=_np.uint8)
-                    # ── 표시용: 퍼센타일 정규화 그대로 (equalize 없음) ──
-                    img_display = _PILImage.fromarray(px8, "L").convert("RGB")
-                    img_gray    = px8  # 프로파일 추출은 클리핑 8비트 사용
-                else:
-                    px8 = px[:,:,:3].astype(_np.uint8) if px.max() <= 255 else \
-                          ((px[:,:,:3] - px[:,:,:3].min()) / (px[:,:,:3].max() - px[:,:,:3].min() + 1e-6) * 255).astype(_np.uint8)
-                    img_display = _PILImage.fromarray(px8, "RGB")
-                    img_gray    = _np.array(_PILImage.fromarray(px8).convert("L"), dtype=_np.uint8)
-                for tag, lbl in [("KVP","관전압(kVp)"),("Manufacturer","제조사"),
-                                  ("ManufacturerModelName","모델명"),("SeriesDescription","시리즈"),
-                                  ("Modality","모달리티"),("Rows","행(px)"),("Columns","열(px)"),
-                                  ("PixelSpacing","픽셀간격(mm)"),("SliceThickness","슬라이스두께"),
-                                  ("BitsAllocated","비트깊이")]:
-                    try: meta[lbl] = str(getattr(ds, tag))
-                    except: pass
-            except Exception:
-                return None, None, {}
-            return img_display, img_gray, meta
-        else:
-            img = _PILImage.open(f)
-            img_rgb  = img.convert("RGB")
-            img_gray = _np.array(img.convert("L"), dtype=_np.uint8)
-            return img_rgb, img_gray, meta
-
-    def _img_to_b64(pil_img, max_w=1200, quality=85):
-        w, h = pil_img.size
-        if w > max_w:
-            pil_img = pil_img.resize((max_w, int(h*max_w/w)), _PILImage.LANCZOS)
-        buf = _sc_io.BytesIO()
-        pil_img.save(buf, format="JPEG", quality=quality)
-        return _sc_b64.b64encode(buf.getvalue()).decode()
-
-    def _show_img(pil_img, max_w=900):
-        b64 = _img_to_b64(pil_img, max_w=max_w)
-        st.markdown(
-            f'<img src="data:image/jpeg;base64,{b64}" '
-            'style="width:100%;height:auto;display:block;border-radius:8px">',
-            unsafe_allow_html=True)
-
-    def _get_ref_img(mname, prefer_side=False):
-        """참조 이미지 PIL 반환
-        prefer_side=True  → side view(1.jpg) 우선
-        prefer_side=False → cross view(0.jpg) 우선
-        """
-        import pathlib as _pl
-        script_dir = _pl.Path(__file__).resolve().parent
-        entry = _MANIFEST.get(mname, {}) if _MANIFEST else {}
-        folder_id = entry.get("folder_id") if isinstance(entry, dict) else entry
-        if not folder_id:
-            return None
-        order = ("1.jpg", "0.jpg") if prefer_side else ("0.jpg", "1.jpg")
-        for fname in order:
-            rp = script_dir / "ref_imgs" / str(folder_id) / fname
-            if rp.exists():
-                return _PILImage.open(rp).convert("RGB")
-        return None
-
-    # ════════════════════════════════════════════════════════
-    # UI 시작
-    # ════════════════════════════════════════════════════════
-
+    # ── 헤더 ──
     st.markdown("""
     <div style="background:linear-gradient(135deg,#1e1b4b,#312e81);border-radius:18px;
-    padding:20px 24px 16px;margin-bottom:20px;box-shadow:0 4px 24px rgba(0,0,0,0.25)">
+    padding:20px 24px 16px;margin-bottom:16px;box-shadow:0 4px 24px rgba(0,0,0,0.25)">
       <div style="color:#a78bfa;font-size:10px;font-weight:700;letter-spacing:2px;
-      text-transform:uppercase;margin-bottom:6px">🔬 SAMPLE SCAN ANALYZER v3</div>
-      <div style="color:white;font-size:18px;font-weight:800;margin-bottom:4px">배터리 셀 형상 자동 분석</div>
-      <div style="color:#94a3b8;font-size:11px">
-        X-RAY 이미지를 업로드하면 형상 기술자 + 자동 프로파일로 즉시 매칭합니다
-      </div>
+      text-transform:uppercase;margin-bottom:6px">🔬 SAMPLE SCAN ANALYZER</div>
+      <div style="color:white;font-size:18px;font-weight:800;margin-bottom:4px">배터리 샘플 유사도 분석</div>
+      <div style="color:#94a3b8;font-size:11px">X-RAY 이미지를 업로드하면 가장 유사한 학습 모델을 찾아드립니다</div>
     </div>
     """, unsafe_allow_html=True)
 
-    # ── 파일 업로드 ──
-    _sc_file = st.file_uploader(
+    # ── 업로드 ──
+    _scan_file = st.file_uploader(
         "📁 X-RAY 이미지 업로드 (PNG · JPG · BMP · TIFF · DCM)",
-        type=["png","jpg","jpeg","bmp","tif","tiff","dcm"],
-        key="scan_v2_upload"
+        type=["png", "jpg", "jpeg", "bmp", "tif", "tiff", "dcm"],
+        key="scan_upload",
     )
 
-    if _sc_file is None:
+    # 새 파일 업로드 시 이전 스캔 결과 초기화
+    if _scan_file is not None:
+        _fkey = f"{_scan_file.name}_{_scan_file.size}"
+        if st.session_state.get("_scan_fkey") != _fkey:
+            st.session_state["_scan_fkey"] = _fkey
+            st.session_state["scan_done"] = False
+
+    if _scan_file is None:
         st.markdown("""
         <div style="background:white;border-radius:18px;padding:60px 24px;
         text-align:center;box-shadow:0 2px 12px rgba(0,0,0,0.07);margin-top:8px">
           <div style="font-size:52px;margin-bottom:14px">🔬</div>
-          <div style="font-size:14px;font-weight:700;color:#374151;margin-bottom:6px">이미지를 업로드해주세요</div>
-          <div style="font-size:11px;color:#9ca3af;line-height:1.8">
-            DCM 또는 PNG/JPG 업로드 시 자동으로 형상 분석 및 장비 매칭이 시작됩니다
+          <div style="font-size:14px;font-weight:700;color:#374151;margin-bottom:6px">
+            이미지를 업로드해주세요</div>
+          <div style="font-size:11px;color:#9ca3af;line-height:1.7">
+            배터리 X-RAY 이미지(단면·측면)를 업로드하면<br>
+            기존 학습 데이터와 유사도를 비교해 드립니다
           </div>
-        </div>""", unsafe_allow_html=True)
+        </div>
+        """, unsafe_allow_html=True)
     else:
-        # ── 이미지 로드 ──
-        _fkey = f"{_sc_file.name}_{_sc_file.size}"
-        if st.session_state.get("_sc_fkey") != _fkey:
-            st.session_state["_sc_fkey"]   = _fkey
-            st.session_state["sc_ref_idx"] = 0
-
-        _img_rgb, _arr_gray, _dcm_meta = _load_img_from_file(_sc_file)
-        if _img_rgb is None:
-            st.error("이미지를 읽을 수 없습니다.")
-            st.stop()
-
-        _W, _H   = _img_rgb.size
-        _aspect  = _W / (_H + 1e-6)
-
-        # ── 업로드 이미지 표시 ──
-        st.markdown(
-            '<div style="background:#0f172a;border-radius:14px;padding:10px 14px 8px;margin-bottom:8px">'
-            '<div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;'
-            'text-transform:uppercase;margin-bottom:6px">📤 UPLOADED IMAGE</div>',
-            unsafe_allow_html=True)
-        _show_img(_img_rgb)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        # ── DICOM 헤더 ──
-        if _dcm_meta:
-            _dc_rows = "".join(
-                f'<tr><td style="color:#64748b;font-size:9px;padding:3px 10px 3px 0;white-space:nowrap">{k}</td>'
-                f'<td style="color:#e2e8f0;font-size:9px;font-weight:600;padding:3px 0">{v}</td></tr>'
-                for k, v in _dcm_meta.items()
-            )
-            st.markdown(
-                '<div style="background:#0f172a;border-radius:12px;padding:10px 14px;margin-bottom:8px">'
-                '<div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;'
-                'text-transform:uppercase;margin-bottom:6px">🏷️ DICOM HEADER</div>'
-                f'<table style="width:100%;border-collapse:collapse">{_dc_rows}</table></div>',
-                unsafe_allow_html=True)
-
-        # ── 자동 분석 (업로드 즉시 실행) ──
-        if _SCAN_DB:
-            _medals     = ["1","2","3"]
-            _bar_colors = ["#a855f7","#6366f1","#8b5cf6"]
-            _ct_icons   = {"cylindrical":"🔋","pouch":"📦","prismatic":"🔲","jig":"🔧"}
-
-            with st.spinner("🧠 형상 분석 중..."):
-                # 1) EfficientNet 임베딩 (딥러닝 — 주 매칭)
-                _emb          = _compute_embedding(_arr_gray)
-                # 2) 에지 방향 히스토그램 형상 기술자 (보조)
-                _shape_desc   = _compute_shape_desc(_arr_gray)
-                # 3) 오버행 측정
-                _overhang_val = _measure_overhang(_arr_gray)
-                # 4) DTW 프로파일 (보조)
-                _auto_profs   = _auto_extract_profiles(_arr_gray)
-
-                # 종합 랭킹
-                _results = _rank_combined(
-                    _emb, _shape_desc, _overhang_val, _auto_profs, _SCAN_DB
-                )
-
-            _use_emb = (_emb is not None)
-            if _use_emb:
-                _match_method = (
-                    f"🧠 EfficientNet 임베딩 60% + 에지형상 15% + 오버행 15% + DTW 10%"
-                    f"  (오버행 {_overhang_val:.3f})"
-                )
-            else:
-                _match_method = (
-                    f"에지형상 45% + 오버행 15% + DTW 40%  (오버행 {_overhang_val:.3f})"
-                    f"  ⚠️ torch 없음"
-                )
-
-            if not _results:
-                st.warning("분석 실패: DB를 확인해주세요.")
-            else:
-                _top3 = _results[:3]
-                _best_mname = _top3[0][0]
-                _best_sim   = _top3[0][1]
-                _best_ct    = _top3[0][2]
-                _score_pct  = _best_sim * 100
-                _sc_col     = "#4ade80" if _score_pct >= 75 else ("#f59e0b" if _score_pct >= 50 else "#f87171")
-
-                # ── 셀렉션 버튼 상태 ──
-                _ref_idx = int(st.session_state.get("sc_ref_idx", 0))
-                if _ref_idx >= len(_top3): _ref_idx = 0
-                _ref_mname = _top3[_ref_idx][0]
-
-                # ── Row: BEST MATCH + TOP-3 ──
-                _r1l, _r1r = st.columns(2)
-
-                with _r1l:
-                    _ct_icon = _ct_icons.get(_best_ct, "❓")
-                    _ct_lbl  = {"cylindrical":"원통형","pouch":"파우치","prismatic":"각형","jig":"지그"}.get(_best_ct, _best_ct)
-                    st.markdown(
-                        '<div style="background:#0f172a;border-radius:16px;padding:18px 20px">'
-                        '<div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;'
-                        'text-transform:uppercase;margin-bottom:14px">🎯 BEST MATCH · 파형 DTW</div>'
-                        '<div style="display:flex;align-items:center;gap:16px;margin-bottom:14px">'
-                        f'<div style="background:conic-gradient({_sc_col} {_score_pct*3.6:.0f}deg,#1e293b 0deg);'
-                        'border-radius:50%;width:72px;height:72px;display:flex;align-items:center;'
-                        'justify-content:center;flex-shrink:0">'
-                        '<div style="background:#0f172a;border-radius:50%;width:56px;height:56px;'
-                        'display:flex;align-items:center;justify-content:center">'
-                        f'<span style="color:{_sc_col};font-size:16px;font-weight:900">{_score_pct:.0f}%</span>'
-                        '</div></div>'
-                        '<div>'
-                        f'<div style="color:#f1f5f9;font-size:17px;font-weight:800;margin-bottom:4px">'
-                        f'{_ct_icon} {_best_mname}</div>'
-                        f'<div style="color:#64748b;font-size:10px">{_ct_lbl} · DB {_SCAN_DB.get("total_samples",0)}장 비교</div>'
-                        '</div></div>'
-                        f'<div style="color:#475569;font-size:9px;margin-top:4px">'
-                        f'🔍 {_match_method}</div>'
-                        '</div>',
-                        unsafe_allow_html=True)
-
-                with _r1r:
-                    _t3_html = ""
-                    for _ri, (_mn, _ms, _ct, _vc) in enumerate(_top3):
-                        _pct = _ms * 100
-                        _bc  = _bar_colors[_ri]
-                        _ic  = _ct_icons.get(_ct, "")
-                        _mn_s = _mn if len(_mn) <= 22 else _mn[:21]+"…"
-                        _t3_html += (
-                            f'<div style="margin-bottom:14px">'
-                            f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">'
-                            f'<span style="color:#cbd5e1;font-size:10px;font-weight:600">{_medals[_ri]} {_ic} {_mn_s}</span>'
-                            f'<span style="color:{_bc};font-size:13px;font-weight:900">{_pct:.1f}%</span>'
-                            f'</div>'
-                            f'<div style="background:#1e293b;border-radius:6px;height:10px;overflow:hidden">'
-                            f'<div style="background:linear-gradient(90deg,{_bc},{_bc}88);width:{int(_pct)}%;height:10px;border-radius:6px"></div>'
-                            f'</div></div>'
-                        )
-                    st.markdown(
-                        '<div style="background:#0f172a;border-radius:16px;padding:16px 18px">'
-                        '<div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;'
-                        'text-transform:uppercase;margin-bottom:14px">📊 유사 모델 순위 TOP-3</div>'
-                        + _t3_html +
-                        '<div style="color:#475569;font-size:8px;text-align:center;margin-top:4px">'
-                        '👆 아래 버튼으로 참조 이미지 전환</div></div>',
-                        unsafe_allow_html=True)
-
-                    # 선택 버튼
-                    _btn_cols = st.columns(len(_top3))
-                    for _bi, (_bm, _bs, *_) in enumerate(_top3):
-                        with _btn_cols[_bi]:
-                            _is_sel = (_bi == _ref_idx)
-                            if st.button(
-                                f"{'✅ ' if _is_sel else ''}{_medals[_bi]}위 {_bm[:15]}",
-                                key=f"sc_ref_{_bi}", use_container_width=True):
-                                st.session_state["sc_ref_idx"] = _bi
-                                st.rerun()
-
-                # ── 이미지 비교: 위아래 배치 ──
-                st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
-
-                st.markdown(
-                    '<div style="background:#0f172a;border-radius:12px;padding:10px 14px 10px;margin-bottom:8px">'
-                    '<div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;'
-                    'text-transform:uppercase;margin-bottom:8px">📤 UPLOADED IMAGE</div>',
-                    unsafe_allow_html=True)
-                _show_img(_img_rgb, max_w=1400)
-                st.markdown('</div>', unsafe_allow_html=True)
-
-                _ref_num = _medals[_ref_idx] if _ref_idx < len(_medals) else ""
-                # 업로드 비율로 side/cross 판별 → 맞는 뷰 우선 로드
-                _is_side = (_aspect > 2.0)
-                _rimg = _get_ref_img(_ref_mname, prefer_side=_is_side)
-                st.markdown(
-                    '<div style="background:#0f172a;border-radius:12px;padding:10px 14px 10px;margin-bottom:8px">'
-                    f'<div style="color:#64748b;font-size:8px;font-weight:700;letter-spacing:2px;'
-                    f'text-transform:uppercase;margin-bottom:8px">📷 참조 — {_ref_num}위 {_ref_mname}</div>',
-                    unsafe_allow_html=True)
-                if _rimg:
-                    _show_img(_rimg, max_w=1400)
+        # ── DCM 파일 처리 ──
+        _is_dcm = _scan_file.name.lower().endswith(".dcm")
+        _dicom_meta = {}
+        if _is_dcm:
+            if not _pydicom_ok:
+                st.error("pydicom 패키지가 설치되지 않았습니다. requirements.txt에 pydicom>=2.4.0을 추가하세요.")
+                st.stop()
+            _dcm_bytes = _scan_file.read()
+            _scan_file.seek(0)
+            try:
+                _ds = _pydicom.dcmread(_io.BytesIO(_dcm_bytes))
+                _px = _ds.pixel_array
+                _px_min, _px_max = float(_px.min()), float(_px.max())
+                if _px_max > _px_min:
+                    _px8 = ((_px - _px_min) / (_px_max - _px_min) * 255).astype(_np.uint8)
                 else:
-                    st.markdown('<div style="color:#475569;padding:20px;text-align:center">참조 이미지 없음</div>',
+                    _px8 = _np.zeros(_px.shape, dtype=_np.uint8)
+                if _px8.ndim == 2:
+                    _img = _PILImage.fromarray(_px8, mode="L")
+                elif _px8.ndim == 3:
+                    _img = _PILImage.fromarray(_px8[:, :, :3])
+                else:
+                    st.error("지원하지 않는 DICOM 픽셀 배열 형식입니다.")
+                    st.stop()
+                # DICOM 메타데이터 수집
+                for _dcm_tag, _dcm_label in [
+                    ("KVP",                   "관전압 (kVp)"),
+                    ("Manufacturer",          "제조사"),
+                    ("ManufacturerModelName", "모델명"),
+                    ("SeriesDescription",     "시리즈"),
+                    ("Modality",              "모달리티"),
+                    ("Rows",                  "행 (px)"),
+                    ("Columns",               "열 (px)"),
+                    ("PixelSpacing",          "픽셀 간격"),
+                    ("SliceThickness",        "슬라이스 두께"),
+                    ("BitsAllocated",         "비트 깊이"),
+                ]:
+                    try:
+                        _dv = getattr(_ds, _dcm_tag)
+                        _dicom_meta[_dcm_label] = str(_dv)
+                    except AttributeError:
+                        pass
+            except Exception as _dcm_err:
+                st.error(f"DICOM 파일을 읽을 수 없습니다: {_dcm_err}")
+                st.stop()
+        else:
+            _img = _PILImage.open(_scan_file)
+
+        _img_rgb = _img.convert("RGB")
+        _img_gray = _img.convert("L")
+        _arr     = _np.array(_img_gray)
+        _w, _h   = _img.size
+
+        # ── 이미지 특성 계산 ──
+        _mean_b  = float(_np.mean(_arr))
+        _std_b   = float(_np.std(_arr))
+        _aspect  = _w / _h
+        _edges   = _np.array(_img_gray.filter(_ImageFilter.FIND_EDGES))
+        _edge_d  = float(_np.mean(_edges)) / 255.0
+        _circ    = min(_w, _h) / max(_w, _h)
+        # 히스토그램 피크 수
+        _hist_arr, _ = _np.histogram(_arr.astype(float), bins=32, range=(0, 255))
+        _hist_n = _hist_arr / (_hist_arr.sum() + 1e-6)
+        _peaks_val = sum(1 for i in range(1, len(_hist_n) - 1)
+                        if _hist_n[i] > _hist_n[i-1] and _hist_n[i] > _hist_n[i+1] and _hist_n[i] > 0.02)
+        # Hu Moments (형상 기반)
+        _arr_u8 = _np.clip(_arr, 0, 255).astype(_np.uint8)
+        _hu_query = _compute_hu(_arr_u8)
+
+        # ── 스캔 버튼 (전체 너비) ──
+        if st.button("🔍  스캔 시작", type="primary", use_container_width=True, key="scan_btn"):
+            st.session_state["scan_done"] = True
+
+        # ── 스캔 결과 사전 계산 ──
+        _top3_full = []
+        _top3      = []
+        _method    = ""
+        _ref_imgs_found = []
+        _ref_mname = ""
+        if st.session_state.get("scan_done") and _SCAN_DB:
+            _t2_results, _method = _db_similarity_2tier(
+                _mean_b, _std_b, _edge_d, _aspect, _peaks_val, _hu_query, _SCAN_DB
+            )
+            if _t2_results:
+                _top3_full = _t2_results[:3]
+                _top3      = [(r[0], r[1]) for r in _top3_full]
+            else:
+                _scores = []
+                _is_radial = 0.85 <= _aspect <= 1.15
+                for _mname in MACHINE_LIST[1:]:
+                    _s = 0.0
+                    if _is_radial and ("원통형" in _mname): _s += 0.25
+                    if 60 <= _mean_b <= 170: _s += 0.20
+                    if _std_b > 40: _s += 0.15
+                    if _edge_d > 0.04: _s += 0.10
+                    _h16 = int(_hashlib.md5((_mname + str(round(_mean_b, -1))).encode()).hexdigest()[:6], 16)
+                    _s += (_h16 / 16777215.0) * 0.30
+                    _scores.append((_mname, min(_s, 0.99)))
+                _scores.sort(key=lambda x: x[1], reverse=True)
+                _top3 = _scores[:3]
+                _top3_full = [(m, s, "?", {}, 0, 0) for m, s in _top3]
+                _method = "휴리스틱"
+            # 참조 이미지 경로 조회 (pathlib으로 강건하게)
+            _ref_mname = _top3_full[0][0] if _top3_full else ""
+            if _ref_mname:
+                import pathlib as _pathlib
+                _script_dir    = _pathlib.Path(__file__).resolve().parent
+                _manifest_path = _script_dir / "ref_imgs" / "manifest.json"
+                if _manifest_path.exists():
+                    try:
+                        _manifest  = json.loads(_manifest_path.read_text(encoding="utf-8"))
+                        _folder_id = _manifest.get(_ref_mname)
+                        if _folder_id:
+                            for _ri in range(2):
+                                _rp = _script_dir / "ref_imgs" / _folder_id / f"{_ri}.jpg"
+                                if _rp.exists():
+                                    _ref_imgs_found.append(str(_rp))
+                    except Exception:
+                        pass
+
+        # ── Row 1: 이미지 나란히 ──
+        _sc_l, _sc_r = st.columns(2)
+
+        # ── 왼쪽: 업로드 이미지 ──
+        with _sc_l:
+            st.markdown("""
+            <div style="background:#0f172a;border-radius:14px;padding:10px 12px 6px;margin-bottom:8px">
+              <div style="color:#64748b;font-size:9px;font-weight:700;letter-spacing:2px;
+              text-transform:uppercase;margin-bottom:6px">📤 UPLOADED IMAGE</div>
+            """, unsafe_allow_html=True)
+            st.image(_img_rgb, use_column_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+
+            # 이미지 기본 정보
+            _meta_rows_html = (
+                f'<tr><td style="color:#6b7280;padding:4px 0;border-bottom:1px solid #f3f4f6">해상도</td>'
+                f'<td style="font-weight:600;text-align:right;border-bottom:1px solid #f3f4f6">{_w} × {_h} px</td></tr>'
+                f'<tr><td style="color:#6b7280;padding:4px 0;border-bottom:1px solid #f3f4f6">평균 밝기</td>'
+                f'<td style="font-weight:600;text-align:right;border-bottom:1px solid #f3f4f6">{_mean_b:.1f} / 255</td></tr>'
+                f'<tr><td style="color:#6b7280;padding:4px 0;border-bottom:1px solid #f3f4f6">명암 대비</td>'
+                f'<td style="font-weight:600;text-align:right;border-bottom:1px solid #f3f4f6">{_std_b:.1f}</td></tr>'
+                f'<tr><td style="color:#6b7280;padding:4px 0;border-bottom:1px solid #f3f4f6">종횡비</td>'
+                f'<td style="font-weight:600;text-align:right;border-bottom:1px solid #f3f4f6">{"정방형(단면)" if 0.85<=_aspect<=1.15 else ("가로형" if _aspect>1.15 else "세로형(측면)")}</td></tr>'
+                f'<tr><td style="color:#6b7280;padding:4px 0{"" if not _dicom_meta else ";border-bottom:1px solid #f3f4f6"}">엣지 밀도</td>'
+                f'<td style="font-weight:600;text-align:right">{"높음 (복잡한 구조)" if _edge_d>0.06 else ("보통" if _edge_d>0.03 else "낮음")}</td></tr>'
+            )
+            if _dicom_meta:
+                _dcm_items = list(_dicom_meta.items())
+                for _di, (_dk, _dv_str) in enumerate(_dcm_items):
+                    _is_last = _di == len(_dcm_items) - 1
+                    _bd = "" if _is_last else ";border-bottom:1px solid #f3f4f6"
+                    _meta_rows_html += (
+                        f'<tr><td style="color:#7c3aed;padding:4px 0{_bd}">{_dk}</td>'
+                        f'<td style="font-weight:600;text-align:right{_bd}">{_dv_str}</td></tr>'
+                    )
+            _info_label = "📋 DICOM INFO" if _is_dcm else "📋 IMAGE INFO"
+            st.markdown(f"""
+            <div style="background:white;border-radius:12px;padding:14px 16px;
+            box-shadow:0 2px 8px rgba(0,0,0,0.07)">
+              <div style="font-size:9px;font-weight:700;color:#7c3aed;letter-spacing:2px;
+              text-transform:uppercase;margin-bottom:10px">{_info_label}</div>
+              <table style="width:100%;font-size:11px;border-collapse:collapse">
+                {_meta_rows_html}
+              </table>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # ── 오른쪽: 참조 이미지 (업로드 이미지와 동일 구조) ──
+        with _sc_r:
+            _ref_title = f"📷 참조 이미지 — {_ref_mname}" if _ref_mname else "📷 참조 이미지"
+            st.markdown(f"""
+            <div style="background:#0f172a;border-radius:14px;padding:10px 12px 6px;margin-bottom:8px">
+              <div style="color:#64748b;font-size:9px;font-weight:700;letter-spacing:2px;
+              text-transform:uppercase;margin-bottom:6px">{_ref_title}</div>
+            """, unsafe_allow_html=True)
+            if not st.session_state.get("scan_done"):
+                st.markdown("""
+                <div style="display:flex;align-items:center;justify-content:center;
+                min-height:300px;color:#334155;font-size:12px;text-align:center">
+                  🎯<br>스캔 후 표시
+                </div>""", unsafe_allow_html=True)
+            elif _ref_imgs_found:
+                # 첫 번째 이미지를 전체 너비로 (업로드 이미지와 평행)
+                try:
+                    st.image(Image.open(_ref_imgs_found[0]), use_column_width=True)
+                except Exception as _e:
+                    st.markdown(f'<div style="color:#f87171;font-size:10px;padding:8px">오류: {_e}</div>',
                                 unsafe_allow_html=True)
-                st.markdown('</div>', unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                <div style="display:flex;align-items:center;justify-content:center;
+                min-height:300px;color:#475569;font-size:10px;text-align:center">
+                  참조 이미지 없음<br>
+                  <span style="font-size:8px">{_ref_mname}</span>
+                </div>""", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        # ── Row 2: 유사도 결과 (이미지 아래) ──
+        if st.session_state.get("scan_done") and _top3_full:
+            st.markdown('<div style="margin-top:12px"></div>', unsafe_allow_html=True)
+            _res_l, _res_r = st.columns([1, 1])
+
+            # ── BEST MATCH 카드 ──
+            with _res_l:
+                _best_ct_icon = {"cylindrical": "🔋", "pouch": "📦",
+                                 "prismatic": "🔲", "jig": "🔧"}.get(
+                    _top3_full[0][2] if _top3_full else "?", "❓")
+                _hu_ok_str = "형상+통계" if _hu_query else "통계 기반"
+                st.markdown(f"""
+                <div style="background:#0f172a;border-radius:14px;padding:12px 14px;height:100%">
+                  <div style="color:#64748b;font-size:9px;font-weight:700;letter-spacing:2px;
+                  text-transform:uppercase;margin-bottom:8px">🎯 BEST MATCH · {_hu_ok_str}</div>
+                  <div style="color:#a78bfa;font-size:16px;font-weight:800;margin-bottom:2px">
+                    {_best_ct_icon} {_top3[0][0]}</div>
+                  <div style="color:#4ade80;font-size:13px;font-weight:700;margin-bottom:10px">
+                    유사도 {_top3[0][1]*100:.1f}%</div>
+                  <div style="background:#1e293b;border-radius:8px;padding:8px 12px;
+                  color:#64748b;font-size:10px;line-height:1.7">
+                    <span style="color:#94a3b8">알고리즘:</span> {_method}<br>
+                    <span style="color:#94a3b8">밝기</span> {_mean_b:.0f}
+                    · <span style="color:#94a3b8">대비</span> {_std_b:.0f}
+                    · <span style="color:#94a3b8">엣지</span> {_edge_d:.3f}
+                    · <span style="color:#94a3b8">종횡비</span> {_aspect:.2f}
+                  </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+            # ── Top-3 순위 바 ──
+            with _res_r:
+                st.markdown("""
+                <div style="background:white;border-radius:12px;padding:14px 16px;
+                box-shadow:0 2px 8px rgba(0,0,0,0.07)">
+                  <div style="font-size:9px;font-weight:700;color:#7c3aed;letter-spacing:2px;
+                  text-transform:uppercase;margin-bottom:12px">📊 유사 모델 순위 Top-3</div>
+                """, unsafe_allow_html=True)
+                _medals = ["🥇", "🥈", "🥉"]
+                _bar_colors = ["#a855f7", "#6366f1", "#8b5cf6"]
+                for _ri, (_mn, _ms) in enumerate(_top3):
+                    _pct = _ms * 100
+                    _ct_icon = {"cylindrical": "🔋", "pouch": "📦", "prismatic": "🔲",
+                                "jig": "🔧"}.get(_top3_full[_ri][2], "")
+                    st.markdown(f"""
+                    <div style="margin-bottom:12px">
+                      <div style="display:flex;justify-content:space-between;
+                      align-items:center;margin-bottom:4px">
+                        <span style="font-size:11px;font-weight:600">{_medals[_ri]} {_ct_icon} {_mn}</span>
+                        <span style="font-size:12px;font-weight:700;color:{_bar_colors[_ri]}">{_pct:.1f}%</span>
+                      </div>
+                      <div style="background:#f3f4f6;border-radius:6px;height:8px;overflow:hidden">
+                        <div style="background:linear-gradient(90deg,{_bar_colors[_ri]},
+                        {_bar_colors[_ri]}99);width:{int(_pct)}%;height:8px;
+                        border-radius:6px"></div>
+                      </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                st.markdown("</div>", unsafe_allow_html=True)
+
+        # ── 하단: 자동 분석 결과 (GLIMPSE 스타일) ──
+        if st.session_state.get("scan_done"):
+            st.markdown('<div style="margin-top:14px"></div>', unsafe_allow_html=True)
+            st.markdown("""
+            <div style="background:#0f172a;border-radius:14px;padding:14px 16px 10px">
+              <div style="color:#64748b;font-size:9px;font-weight:700;letter-spacing:2px;
+              text-transform:uppercase;margin-bottom:12px">⚙️ AUTOMATED ANALYSIS RESULTS</div>
+            """, unsafe_allow_html=True)
+            _m1, _m2, _m3, _m4, _m5 = st.columns(5)
+            _analysis_items = [
+                ("해상도", f"{_w}×{_h}", "px", _m1),
+                ("평균 밝기", f"{_mean_b:.1f}", "/ 255", _m2),
+                ("명암 대비", f"{_std_b:.1f}", "σ", _m3),
+                ("엣지 밀도", f"{_edge_d:.3f}", "", _m4),
+                ("추정 유형", "단면" if 0.85<=_aspect<=1.15 else "측면", "", _m5),
+            ]
+            for _lbl, _val, _unit, _col in _analysis_items:
+                _col.markdown(f"""
+                <div style="background:#1e293b;border-radius:10px;padding:10px 8px;text-align:center">
+                  <div style="color:#64748b;font-size:9px;text-transform:uppercase;
+                  letter-spacing:1px;margin-bottom:4px">{_lbl}</div>
+                  <div style="color:white;font-size:15px;font-weight:800">{_val}</div>
+                  <div style="color:#475569;font-size:9px">{_unit}</div>
+                </div>
+                """, unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+
+            # ═══════════════════════════════════════════════════════
+            # ── 심층 분석 UI (유사도 결과 아래) ──
+            # ═══════════════════════════════════════════════════════
+            st.markdown('<div style="margin-top:18px"></div>', unsafe_allow_html=True)
+            st.markdown("""
+            <div style="background:#0f172a;border-radius:14px;padding:14px 16px 10px;margin-bottom:12px">
+              <div style="color:#64748b;font-size:9px;font-weight:700;letter-spacing:2px;
+              text-transform:uppercase;margin-bottom:2px">🔍 DEEP ANALYSIS</div>
+              <div style="color:#94a3b8;font-size:10px">업로드 이미지 피처 vs 매칭 장비 분포 비교</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # ── 피처 비교 바 차트 (업로드 vs Top-1 장비 평균) ──
+            if _SCAN_DB and _top3_full:
+                _best_mname = _top3_full[0][0]
+                _best_mdata = _SCAN_DB["machines"].get(_best_mname, {})
+                _best_stats = _best_mdata.get("stats", {})
+
+                _feat_labels = {
+                    "mean":  ("평균 밝기", _mean_b,  0, 255,   "#60a5fa"),
+                    "std":   ("명암 대비", _std_b,   0, 128,   "#34d399"),
+                    "edge":  ("엣지 밀도", _edge_d*100, 0, 15, "#f59e0b"),
+                    "asp":   ("종횡비×100", _aspect*100, 50, 200, "#a78bfa"),
+                    "peaks": ("히스토그램 피크", _peaks_val, 0, 8, "#f472b6"),
+                }
+                _da_cols = st.columns(len(_feat_labels))
+                for _ci, (_fk, (_flbl, _fval, _fmin, _fmax, _fcol)) in enumerate(_feat_labels.items()):
+                    _ref_mu    = _best_stats.get(_fk, {}).get("mu", None)
+                    _ref_sigma = _best_stats.get(_fk, {}).get("sigma", 1.0)
+                    _ref_stat_min = _best_stats.get(_fk, {}).get("min", _fmin)
+                    _ref_stat_max = _best_stats.get(_fk, {}).get("max", _fmax)
+                    # 실제 피처값 (edge는 ×100 했으니 mu도 ×100)
+                    _fval_raw = _fval / 100 if _fk in ("edge",) else (
+                                _fval / 100 if _fk == "asp" else _fval)
+                    if _fk == "asp":
+                        _fval_raw = _aspect
+                    elif _fk == "edge":
+                        _fval_raw = _edge_d
+                    elif _fk == "peaks":
+                        _fval_raw = _peaks_val
+
+                    # 백분율 (표시용)
+                    _range = max(_fmax - _fmin, 0.01)
+                    _pct_q   = min(max((_fval - _fmin) / _range * 100, 0), 100)
+                    _pct_ref = min(max((_ref_mu * (100 if _fk == "edge" else (100 if _fk == "asp" else 1)) - _fmin) / _range * 100, 0), 100) if _ref_mu else 50
+
+                    # 실제 표시 pct
+                    _pct_q2   = min(max((_fval_raw / (_fmax / (100 if _fk in ("edge","asp") else 1) or 1)) * 100, 0), 100) if _fk in ("edge","asp") else _pct_q
+                    _ref_pct2 = min(max((_ref_mu / (_fmax / (100 if _fk in ("edge","asp") else 1) or 1)) * 100, 0), 100) if (_ref_mu and _fk in ("edge","asp")) else _pct_ref
+
+                    # z-score 판정
+                    _z = abs(_fval_raw - _ref_mu) / (_ref_sigma + 1e-6) if _ref_mu is not None else 0
+                    _z_color = "#4ade80" if _z < 1.0 else ("#f59e0b" if _z < 2.0 else "#f87171")
+                    _z_label = "✓ 정상" if _z < 1.0 else ("△ 주의" if _z < 2.0 else "✗ 이탈")
+
+                    _da_cols[_ci].markdown(f"""
+                    <div style="background:#1e293b;border-radius:10px;padding:10px 8px 8px;text-align:center">
+                      <div style="color:#64748b;font-size:8px;text-transform:uppercase;
+                      letter-spacing:1px;margin-bottom:6px">{_flbl}</div>
+                      <div style="color:white;font-size:13px;font-weight:800;margin-bottom:2px">{_fval:.2f}</div>
+                      <div style="color:#475569;font-size:8px;margin-bottom:6px">
+                        참조: {_ref_mu:.2f}±{_ref_sigma:.2f}</div>
+                      <div style="background:#0f172a;border-radius:4px;height:6px;overflow:hidden;margin-bottom:4px">
+                        <div style="background:{_fcol};width:{int(_pct_q)}%;height:6px;border-radius:4px"></div>
+                      </div>
+                      <div style="color:{_z_color};font-size:9px;font-weight:700">{_z_label}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                # ── Hu Moments 형상 유사도 수치 ──
+                st.markdown('<div style="margin-top:12px"></div>', unsafe_allow_html=True)
+                _hu_ref = _best_mdata.get("hu_mean")
+                if _hu_query and _hu_ref:
+                    _hu_dist_val = _hu_dist(_hu_query, _hu_ref)
+                    _hu_sim_pct  = max(0, min(100, (1 - _hu_dist_val / 15.0) * 100))
+                    _hu_color    = "#4ade80" if _hu_sim_pct > 70 else ("#f59e0b" if _hu_sim_pct > 40 else "#f87171")
+                    st.markdown(f"""
+                    <div style="background:#1e293b;border-radius:10px;padding:12px 14px;text-align:center">
+                      <div style="color:#64748b;font-size:8px;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">형상 유사도</div>
+                      <div style="color:{_hu_color};font-size:22px;font-weight:900">{_hu_sim_pct:.0f}%</div>
+                      <div style="color:#475569;font-size:9px">Hu Moments</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                # ── 매칭 장비 뷰 타입 분포 ──
+                _vc = _best_mdata.get("view_counts", {})
+                if _vc:
+                    _vc_total = sum(_vc.values())
+                    _vc_html = ""
+                    _vc_color_map = {
+                        "cross_section": "#a78bfa", "top": "#60a5fa", "bottom": "#34d399",
+                        "side": "#f59e0b", "stack": "#f472b6", "eol": "#fb923c",
+                        "full_label": "#38bdf8", "msa": "#4ade80", "unknown": "#475569",
+                    }
+                    for _vt, _vn in sorted(_vc.items(), key=lambda x: -x[1]):
+                        _vp = _vn / _vc_total * 100
+                        _vc_html += (f'<span style="background:{_vc_color_map.get(_vt,"#475569")}22;'
+                                     f'color:{_vc_color_map.get(_vt,"#94a3b8")};border:1px solid '
+                                     f'{_vc_color_map.get(_vt,"#475569")}44;border-radius:6px;'
+                                     f'padding:2px 7px;font-size:9px;font-weight:700;margin:2px">'
+                                     f'{_vt} {_vp:.0f}%</span>')
+                    st.markdown(f"""
+                    <div style="background:#1e293b;border-radius:10px;padding:10px 14px;margin-top:8px">
+                      <div style="color:#64748b;font-size:8px;text-transform:uppercase;
+                      letter-spacing:1px;margin-bottom:6px">📁 {_best_mname} — 학습 뷰 분포 ({_vc_total}장)</div>
+                      <div>{_vc_html}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
