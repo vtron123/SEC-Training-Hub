@@ -612,6 +612,7 @@ MACHINE_MAP = {
     "2호기": ["2호기"],
     "JH3": ["JH3"],
     "SES 탑머터리얼": ["SES 탑머터리얼", "탑머터리얼", "SES TAP", "탑머", "SES"],
+    "LGES MI JF2": ["LGES MI JF2", "MI JF2", "JF2"],
 }
 
 MACHINE_LIST = ["(장비 자동감지)"] + list(MACHINE_MAP.keys())
