@@ -606,9 +606,9 @@ MACHINE_MAP = {
     "PNT PFP-100E": ["PFP", "100E"],
     "EVB-CTS-C(원통형) 2170": ["2170", "H19", "H52A"],
     "EVB-CTS-C(원통형) 4680": ["4680", "AZ", "MP2"],
-    "EVB-CTS-C(원통형) 4680 MP1 46ES 원형": ["MP1 46ES 원형", "46ES 원형", "MP1 원형"],
-    "EVB-CTS-C(원통형) 4680 MP1 46ES 상부": ["MP1 46ES 상부", "46ES 상부", "MP1 상부"],
-    "EVB-CTS-C(원통형) 4680 MP1 46ES 하부": ["MP1 46ES 하부", "46ES 하부", "MP1 하부"],
+    "EVB-CTS-C(원통형) 4680 MP1 46ES 원형": ["MP1 46ES 원형", "MP1&&원형", "46ES&&원형"],
+    "EVB-CTS-C(원통형) 4680 MP1 46ES 상부": ["MP1 46ES 상부", "MP1&&상부", "46ES&&상부"],
+    "EVB-CTS-C(원통형) 4680 MP1 46ES 하부": ["MP1 46ES 하부", "MP1&&하부", "46ES&&하부"],
     "EVB-CTS-C(원통형) 4695": ["4695", "N32S2", "선행검증", "CTA"],
     "EVB-XFP-A(HJV)": ["HJV", "XFP"],
     "1호기": ["1호기"],
@@ -700,24 +700,30 @@ def load_pc_assignments():
 # ──────────────────────────────────────────────
 # 헬퍼 함수
 # ──────────────────────────────────────────────
+def _kw_match(kw: str, upper: str) -> bool:
+    """키워드 매칭. '&&' 구분자로 AND 조건 지원 (예: 'MP1&&원형')"""
+    if "&&" in kw:
+        return all(
+            re.search(r'(?<![A-Za-z0-9가-힣])' + re.escape(p.strip()) + r'(?![A-Za-z0-9가-힣])', upper)
+            for p in kw.split("&&")
+        )
+    return bool(re.search(r'(?<![A-Za-z0-9])' + re.escape(kw) + r'(?![A-Za-z0-9])', upper))
+
 def detect_machine(text: str) -> str:
     """
     텍스트에서 장비명을 감지합니다.
     - 괄호 안 날짜 패턴 (260414 등 6자리 숫자) 제거 후 매칭
     - 긴 키워드 우선, 완전 단어 매칭 우선
+    - '&&' AND 조건 지원: 'MP1&&원형' → MP1과 원형 둘 다 포함 시 매칭
     """
-    # 괄호 안 날짜/숫자 패턴 제거: (260414), (26.04.14) 등
     cleaned = re.sub(r'\(\d{4,8}\)', '', text)
-    # 연월일 패턴 제거: 260414, 2025-04-14 등
     cleaned = re.sub(r'\b\d{6,8}\b', '', cleaned)
     upper = cleaned.upper()
 
     sorted_map = sorted(MACHINE_MAP.items(), key=lambda x: len(max(x[1], key=len)), reverse=True)
     for full_name, keywords in sorted_map:
         for kw in keywords:
-            # 키워드가 문자/숫자 경계에 있는지 확인 (오탐 방지)
-            pattern = r'(?<![A-Za-z0-9])' + re.escape(kw) + r'(?![A-Za-z0-9])'
-            if re.search(pattern, upper):
+            if _kw_match(kw, upper):
                 return full_name
     return "개별 장비"
 
@@ -743,14 +749,11 @@ def parse_natural_input(text: str):
     return machine, count, text.strip()
 
 def parse_query_machine(text: str):
-    upper = text.upper()
-    # 괄호 안 날짜 제거
-    cleaned = re.sub(r'\(\d{4,8}\)', '', upper)
+    cleaned = re.sub(r'\(\d{4,8}\)', '', text.upper())
     sorted_map = sorted(MACHINE_MAP.items(), key=lambda x: len(max(x[1], key=len)), reverse=True)
     for full_name, keywords in sorted_map:
         for kw in keywords:
-            pattern = r'(?<![A-Za-z0-9])' + re.escape(kw) + r'(?![A-Za-z0-9])'
-            if re.search(pattern, cleaned):
+            if _kw_match(kw, cleaned):
                 return full_name
     return None
 
