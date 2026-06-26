@@ -1,4 +1,4 @@
-﻿import streamlit as st
+import streamlit as st
 import streamlit.components.v1 as _components
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
